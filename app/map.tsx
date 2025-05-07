@@ -34,9 +34,9 @@ import React, {
   const CONTAINER_W = W - SIDEBAR;
   const CONTAINER_H = H - INFOBAR;
   
-  /* Bresenham path */
+  /* Bresenham */
   function makePath(a: Coor, b: Coor) {
-    const out: Coor[] = [];
+    const path: Coor[] = [];
     let [x0, y0] = [a.col, a.row];
     const [x1, y1] = [b.col, b.row];
     const dx = Math.abs(x1 - x0),
@@ -45,7 +45,7 @@ import React, {
       sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
     while (true) {
-      out.push({ col: x0, row: y0 });
+      path.push({ col: x0, row: y0 });
       if (x0 === x1 && y0 === y1) break;
       const e2 = 2 * err;
       if (e2 > -dy) {
@@ -57,7 +57,7 @@ import React, {
         y0 += sy;
       }
     }
-    return out;
+    return path;
   }
   
   export default function MapScreen() {
@@ -66,12 +66,12 @@ import React, {
       (s: RootState) => s.game,
     );
   
-    /* path & distance */
+    /* ---------- path & distance ---------- */
     const [path, setPath] = useState<Coor[]>([]);
     const [distance, setDistance] = useState(0);
   
     useEffect(() => {
-      if (!selected || (selected.col === pcPos.col && selected.row === pcPos.row)) {
+      if (!selected || (selected.row === pcPos.row && selected.col === pcPos.col)) {
         setPath([]);
         setDistance(0);
         return;
@@ -81,21 +81,21 @@ import React, {
       setDistance(p.length - 1);
     }, [selected, pcPos]);
   
-    /* camera bounds & initial position */
+    /* ---------- camera ---------- */
     const MAP_W = cols * TILE,
       MAP_H = rows * TILE;
   
-    const minX = -Math.max(0, MAP_W - CONTAINER_W),
-      maxX = 0;
-    const minY = -Math.max(0, MAP_H - CONTAINER_H),  // fixed
-      maxY = 0;
+    const minX = -Math.max(0, MAP_W - CONTAINER_W);
+    const maxX = 0;
+    const minY = -Math.max(0, MAP_H - CONTAINER_H);
+    const maxY = 0;
   
     const initX = Math.min(
       Math.max(-pcPos.col * TILE + CONTAINER_W / 2 - TILE / 2, minX),
       maxX,
     );
     const initY = Math.min(
-      Math.max(-pcPos.row * TILE + CONTAINER_H / 2 - TILE / 2, minY), // fixed
+      Math.max(-pcPos.row * TILE + CONTAINER_H / 2 - TILE / 2, minY),
       maxY,
     );
   
@@ -104,14 +104,35 @@ import React, {
     const jsOffset = useRef({ x: initX, y: initY });
     const [needCenter, setNeedCenter] = useState(false);
   
+    /* corrected off-screen calc */
     const pcOffscreen = (nx: number, ny: number) => {
-      const left = -nx,
-        top = -ny;
-      const right = left + CONTAINER_W - TILE;
-      const bottom = top + CONTAINER_H - TILE;          // fixed
-      const pcX = pcPos.col * TILE,
-        pcY = pcPos.row * TILE;
-      return pcX < left || pcX > right || pcY < top || pcY > bottom;
+      const left = -nx;
+      const top = -ny;
+      const right = left + CONTAINER_W;
+      const bottom = top + CONTAINER_H;
+  
+      const pcLeft = pcPos.col * TILE;
+      const pcTop = pcPos.row * TILE;
+      const pcRight = pcLeft + TILE;
+      const pcBottom = pcTop + TILE;
+  
+      const off =
+        pcLeft < left ||
+        pcRight > right ||
+        pcTop < top ||
+        pcBottom > bottom;
+  
+      /* DEBUG */
+      console.log(
+        '⛳ bounds',
+        { left, right, top, bottom },
+        'pc',
+        { pcLeft, pcRight, pcTop, pcBottom },
+        'off',
+        off,
+      );
+  
+      return off;
     };
   
     const syncOffset = (nx: number, ny: number) => {
@@ -157,7 +178,7 @@ import React, {
       syncOffset(initX, initY);
     };
   
-    /* tap selection */
+    /* ---------- selection ---------- */
     const viewport = useRef({ x: 0, y: 0 });
     const onLayout = (e: LayoutChangeEvent) =>
       (viewport.current = {
@@ -176,22 +197,22 @@ import React, {
         dispatch(setSelected({ col, row }));
     };
   
-    /* travel / encounter overlay */
+    /* ---------- travel / encounter ---------- */
     const travelRef = useRef({ idx: 1, active: false, paused: false });
     const [encounter, setEncounter] = useState(false);
   
     const travelStep = useCallback(() => {
-      const ref = travelRef.current;
-      if (!ref.active || ref.paused || ref.idx >= path.length) {
-        ref.active = false;
+      const r = travelRef.current;
+      if (!r.active || r.paused || r.idx >= path.length) {
+        r.active = false;
         return;
       }
-      const next = path[ref.idx];
+      const next = path[r.idx];
       dispatch(setPcPos(next));
-      ref.idx += 1;
+      r.idx += 1;
   
       if (Math.random() < 0.1) {
-        ref.paused = true;
+        r.paused = true;
         setEncounter(true);
         return;
       }
@@ -213,7 +234,7 @@ import React, {
     /* options overlay */
     const [showOpts, setShowOpts] = useState(false);
   
-    /* render */
+    /* ---------- render ---------- */
     const selectedKey = selected ? `${selected.row}-${selected.col}` : null;
     const onPc = selected && selected.col === pcPos.col && selected.row === pcPos.row;
   
@@ -286,7 +307,7 @@ import React, {
           )}
         </View>
   
-        {/* infobar */}
+        {/* info bar */}
         <View style={styles.infobar}>
           {encounter ? (
             <Pressable style={styles.actionBtn} onPress={resumeTravel}>
@@ -298,10 +319,7 @@ import React, {
                 Row {selected.row} • Col {selected.col} • Dist {distance}
               </Text>
               {!onPc && (
-                <Pressable
-                  style={styles.actionBtn}
-                  onPress={startTravel}
-                  disabled={travelRef.current.active}>
+                <Pressable style={styles.actionBtn} onPress={startTravel}>
                   <Text style={styles.actionTxt}>Travel</Text>
                 </Pressable>
               )}
@@ -323,7 +341,7 @@ import React, {
           </View>
         )}
   
-        {/* encounter modal (same overlay strategy) */}
+        {/* encounter modal */}
         {encounter && (
           <View style={styles.overlay}>
             <View style={styles.popup}>
@@ -338,7 +356,7 @@ import React, {
     );
   }
   
-  /* styles */
+  /* ---------- styles ---------- */
   const styles = StyleSheet.create({
     container: { flex: 1, flexDirection: 'row', backgroundColor: colors.backgroundBase },
   
@@ -346,7 +364,7 @@ import React, {
     btn: { width: '90%', backgroundColor: colors.accentGold, paddingVertical: 10, alignItems: 'center' },
     btnTxt: { color: colors.backgroundBase, fontWeight: '700' },
   
-    mapWrap: { flex: 1, overflow: 'hidden' },
+    mapWrap: { width: CONTAINER_W, height: CONTAINER_H, overflow: 'hidden' }, // fixed width/height
     centerBtn: { position: 'absolute', right: 10, top: 10, backgroundColor: colors.accentGold, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 4 },
     centerTxt: { color: colors.backgroundBase, fontWeight: '700' },
   
