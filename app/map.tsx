@@ -1,3 +1,4 @@
+// app/map.tsx
 import React, {
   useMemo,
   useRef,
@@ -13,8 +14,9 @@ import {
   Text,
   LayoutChangeEvent,
 } from 'react-native';
-import Svg, { Rect, Text as SvgText, Line } from 'react-native-svg';
+import Svg, { Rect, Line, Text as SvgText } from 'react-native-svg';
 import { useSelector, useDispatch } from 'react-redux';
+import { useRouter } from 'expo-router';
 import { RootState } from '../store';
 import { setPcPos, setSelected, Coor } from '../store/slices/gameSlice';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -29,12 +31,10 @@ import { colors } from '../theme/colors';
 const TILE = 40;
 const SIDEBAR = 120;
 const INFOBAR = 90;
-
 const { width: W, height: H } = Dimensions.get('window');
 const CONTAINER_W = W - SIDEBAR;
 const CONTAINER_H = H - INFOBAR;
 
-/* Bresenham */
 function makePath(a: Coor, b: Coor) {
   const path: Coor[] = [];
   let [x0, y0] = [a.col, a.row];
@@ -61,17 +61,23 @@ function makePath(a: Coor, b: Coor) {
 }
 
 export default function MapScreen() {
+  const router = useRouter();
   const dispatch = useDispatch();
   const { rows, cols, tiles, pcPos, selected } = useSelector(
-    (s: RootState) => s.game,
+    (s: RootState) => s.game
+  );
+  const attributePoints = useSelector(
+    (s: RootState) => s.player.attributePoints
   );
 
-  /* ---------- path & distance ---------- */
   const [path, setPath] = useState<Coor[]>([]);
   const [distance, setDistance] = useState(0);
 
   useEffect(() => {
-    if (!selected || (selected.row === pcPos.row && selected.col === pcPos.col)) {
+    if (
+      !selected ||
+      (selected.row === pcPos.row && selected.col === pcPos.col)
+    ) {
       setPath([]);
       setDistance(0);
       return;
@@ -81,70 +87,53 @@ export default function MapScreen() {
     setDistance(p.length - 1);
   }, [selected, pcPos]);
 
-  /* ---------- camera ---------- */
   const MAP_W = cols * TILE,
     MAP_H = rows * TILE;
-
-  const minX = -Math.max(0, MAP_W - CONTAINER_W);
-  const maxX = 0;
-  const minY = -Math.max(0, MAP_H - CONTAINER_H);
-  const maxY = 0;
-
+  const minX = -Math.max(0, MAP_W - CONTAINER_W),
+    maxX = 0;
+  const minY = -Math.max(0, MAP_H - CONTAINER_H),
+    maxY = 0;
   const initX = Math.min(
-    Math.max(-pcPos.col * TILE + CONTAINER_W / 2 - TILE / 2, minX),
-    maxX,
-  );
-  const initY = Math.min(
-    Math.max(-pcPos.row * TILE + CONTAINER_H / 2 - TILE / 2, minY),
-    maxY,
-  );
+      Math.max(-pcPos.col * TILE + CONTAINER_W / 2 - TILE / 2, minX),
+      maxX
+    ),
+    initY = Math.min(
+      Math.max(-pcPos.row * TILE + CONTAINER_H / 2 - TILE / 2, minY),
+      maxY
+    );
 
   const offsetX = useSharedValue(initX);
   const offsetY = useSharedValue(initY);
   const jsOffset = useRef({ x: initX, y: initY });
   const [needCenter, setNeedCenter] = useState(false);
 
-  /* corrected off-screen calc */
   const pcOffscreen = (nx: number, ny: number) => {
-    const left = -nx;
-    const top = -ny;
-    const right = left + CONTAINER_W;
-    const bottom = top + CONTAINER_H;
-
-    const pcLeft = pcPos.col * TILE;
-    const pcTop = pcPos.row * TILE;
-    const pcRight = pcLeft + TILE;
-    const pcBottom = pcTop + TILE;
-
-    const off =
+    const left = -nx,
+      top = -ny,
+      right = left + CONTAINER_W,
+      bottom = top + CONTAINER_H;
+    const pcLeft = pcPos.col * TILE,
+      pcTop = pcPos.row * TILE,
+      pcRight = pcLeft + TILE,
+      pcBottom = pcTop + TILE;
+    return (
       pcLeft < left ||
       pcRight > right ||
       pcTop < top ||
-      pcBottom > bottom;
-
-    /* DEBUG */
-    console.log(
-      '⛳ bounds',
-      { left, right, top, bottom },
-      'pc',
-      { pcLeft, pcRight, pcTop, pcBottom },
-      'off',
-      off,
+      pcBottom > bottom
     );
-
-    return off;
   };
 
   const syncOffset = (nx: number, ny: number) => {
     jsOffset.current = { x: nx, y: ny };
     setNeedCenter(pcOffscreen(nx, ny));
   };
-
-  useEffect(() => syncOffset(jsOffset.current.x, jsOffset.current.y), [pcPos]);
+  useEffect(() => syncOffset(jsOffset.current.x, jsOffset.current.y), [
+    pcPos,
+  ]);
 
   const startX = useSharedValue(0),
     startY = useSharedValue(0);
-
   const pan = useMemo(
     () =>
       Gesture.Pan()
@@ -153,32 +142,31 @@ export default function MapScreen() {
           startX.value = offsetX.value;
           startY.value = offsetY.value;
         })
-        .onUpdate(e => {
+        .onUpdate((e) => {
           'worklet';
           let nx = startX.value + e.translationX,
             ny = startY.value + e.translationY;
-          if (nx < minX) nx = minX;
-          if (nx > maxX) nx = maxX;
-          if (ny < minY) ny = minY;
-          if (ny > maxY) ny = maxY;
+          nx = Math.min(Math.max(nx, minX), maxX);
+          ny = Math.min(Math.max(ny, minY), maxY);
           offsetX.value = nx;
           offsetY.value = ny;
           runOnJS(syncOffset)(nx, ny);
         }),
-    [minX, maxX, minY, maxY],
+    [minX, maxX, minY, maxY]
   );
 
   const camStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: offsetX.value }, { translateY: offsetY.value }],
+    transform: [
+      { translateX: offsetX.value },
+      { translateY: offsetY.value },
+    ],
   }));
-
   const centerCam = () => {
     offsetX.value = withTiming(initX);
     offsetY.value = withTiming(initY);
     syncOffset(initX, initY);
   };
 
-  /* ---------- selection ---------- */
   const viewport = useRef({ x: 0, y: 0 });
   const onLayout = (e: LayoutChangeEvent) =>
     (viewport.current = {
@@ -188,19 +176,23 @@ export default function MapScreen() {
 
   const tapSelect = (e: any) => {
     const col = Math.floor(
-      (e.nativeEvent.pageX - viewport.current.x - jsOffset.current.x) / TILE,
-    );
-    const row = Math.floor(
-      (e.nativeEvent.pageY - viewport.current.y - jsOffset.current.y) / TILE,
-    );
+        (e.nativeEvent.pageX -
+          viewport.current.x -
+          jsOffset.current.x) /
+          TILE
+      ),
+      row = Math.floor(
+        (e.nativeEvent.pageY -
+          viewport.current.y -
+          jsOffset.current.y) /
+          TILE
+      );
     if (col >= 0 && col < cols && row >= 0 && row < rows)
       dispatch(setSelected({ col, row }));
   };
 
-  /* ---------- travel / encounter ---------- */
   const travelRef = useRef({ idx: 1, active: false, paused: false });
   const [encounter, setEncounter] = useState(false);
-
   const travelStep = useCallback(() => {
     const r = travelRef.current;
     if (!r.active || r.paused || r.idx >= path.length) {
@@ -210,7 +202,6 @@ export default function MapScreen() {
     const next = path[r.idx];
     dispatch(setPcPos(next));
     r.idx += 1;
-
     if (Math.random() < 0.1) {
       r.paused = true;
       setEncounter(true);
@@ -225,40 +216,47 @@ export default function MapScreen() {
     travelStep();
   };
 
-  const resumeTravel = () => {
-    setEncounter(false);
-    travelRef.current.paused = false;
-    setTimeout(travelStep, 120);
-  };
-
-  /* options overlay */
   const [showOpts, setShowOpts] = useState(false);
 
-  /* ---------- render ---------- */
-  const selectedKey = selected ? `${selected.row}-${selected.col}` : null;
-  const onPc = selected && selected.col === pcPos.col && selected.row === pcPos.row;
+  const selectedKey = selected
+    ? `${selected.row}-${selected.col}`
+    : null;
+  const onPc =
+    selected &&
+    selected.col === pcPos.col &&
+    selected.row === pcPos.row;
 
   return (
     <View style={styles.container}>
-      {/* sidebar */}
       <View style={styles.sidebar}>
-        <Pressable style={styles.btn}>
-          <Text style={styles.btnTxt}>Character</Text>
-        </Pressable>
-        <Pressable style={styles.btn} onPress={() => setShowOpts(true)}>
+        <View style={styles.charBtnWrapper}>
+          <Pressable
+            style={styles.btn}
+            onPress={() => router.push('/character-sheet')}
+          >
+            <Text style={styles.btnTxt}>Character</Text>
+          </Pressable>
+          {attributePoints > 0 && (
+            <View style={styles.badge} />
+          )}
+        </View>
+        <Pressable
+          style={styles.btn}
+          onPress={() => setShowOpts(true)}
+        >
           <Text style={styles.btnTxt}>Options</Text>
         </Pressable>
       </View>
 
-      {/* map */}
       <View style={styles.mapWrap} onLayout={onLayout}>
         <GestureDetector gesture={pan}>
           <Animated.View
             style={camStyle}
             onStartShouldSetResponder={() => true}
-            onResponderRelease={tapSelect}>
+            onResponderRelease={tapSelect}
+          >
             <Svg width={MAP_W} height={MAP_H}>
-              {tiles.map(t => (
+              {tiles.map((t) => (
                 <Rect
                   key={t.id}
                   x={t.col * TILE}
@@ -272,9 +270,17 @@ export default function MapScreen() {
                       ? '#264'
                       : '#886'
                   }
-                  stroke={selectedKey === t.id ? colors.accentGold : colors.surface}
-                  strokeWidth={selectedKey === t.id ? 3 : 0.5}
-                  opacity={selectedKey === t.id ? 0.55 : 1}
+                  stroke={
+                    selectedKey === t.id
+                      ? colors.accentGold
+                      : colors.surface
+                  }
+                  strokeWidth={
+                    selectedKey === t.id ? 3 : 0.5
+                  }
+                  opacity={
+                    selectedKey === t.id ? 0.55 : 1
+                  }
                 />
               ))}
               {selected && path.length > 1 && (
@@ -293,7 +299,8 @@ export default function MapScreen() {
                 fill={colors.ivoryWhite}
                 fontSize="16"
                 fontWeight="700"
-                textAnchor="middle">
+                textAnchor="middle"
+              >
                 PC
               </SvgText>
             </Svg>
@@ -301,53 +308,103 @@ export default function MapScreen() {
         </GestureDetector>
 
         {needCenter && (
-          <Pressable style={styles.centerBtn} onPress={centerCam}>
-            <Text style={styles.centerTxt}>Center PC</Text>
+          <Pressable
+            style={styles.centerBtn}
+            onPress={centerCam}
+          >
+            <Text style={styles.centerTxt}>
+              Center PC
+            </Text>
           </Pressable>
         )}
       </View>
 
-      {/* info bar */}
       <View style={styles.infobar}>
         {encounter ? (
-          <Pressable style={styles.actionBtn} onPress={resumeTravel}>
-            <Text style={styles.actionTxt}>Encounter! Continue</Text>
+          <Pressable
+            style={styles.actionBtn}
+            onPress={() => {
+              setEncounter(false);
+              travelRef.current.active = false;
+            }}
+          >
+            <Text style={styles.actionTxt}>
+              Encounter!
+            </Text>
           </Pressable>
         ) : selected ? (
           <>
             <Text style={styles.infoTxt}>
-              Row {selected.row} • Col {selected.col} • Dist {distance}
+              Row {selected.row} • Col {selected.col} •
+              Dist {distance}
             </Text>
-            {!onPc && (
-              <Pressable style={styles.actionBtn} onPress={startTravel}>
-                <Text style={styles.actionTxt}>Travel</Text>
+            {onPc ? (
+              <Pressable
+                style={styles.actionBtn}
+                onPress={() => {
+                  const tile = tiles.find(
+                    (t) =>
+                      t.row === selected.row &&
+                      t.col === selected.col
+                  );
+                  if (tile) {
+                    router.push({
+                      pathname: '/location/[type]',
+                      params: { type: tile.locationType },
+                    });
+                  }
+                }}
+              >
+                <Text style={styles.actionTxt}>
+                  Enter
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={styles.actionBtn}
+                onPress={startTravel}
+              >
+                <Text style={styles.actionTxt}>
+                  Travel
+                </Text>
               </Pressable>
             )}
           </>
         ) : (
-          <Text style={styles.infoTxt}>Tap a tile</Text>
+          <Text style={styles.infoTxt}>
+            Tap a tile
+          </Text>
         )}
       </View>
 
-      {/* options modal */}
       {showOpts && (
         <View style={styles.overlay}>
           <View style={styles.popup}>
             <Text style={styles.popTitle}>Options</Text>
-            <Pressable style={styles.popBtn} onPress={() => setShowOpts(false)}>
+            <Pressable
+              style={styles.popBtn}
+              onPress={() => setShowOpts(false)}
+            >
               <Text style={styles.popBtnTxt}>Close</Text>
             </Pressable>
           </View>
         </View>
       )}
 
-      {/* encounter modal */}
       {encounter && (
         <View style={styles.overlay}>
           <View style={styles.popup}>
             <Text style={styles.popTitle}>Encounter!</Text>
-            <Pressable style={styles.popBtn} onPress={resumeTravel}>
-              <Text style={styles.popBtnTxt}>Continue</Text>
+            <Pressable
+              style={styles.popBtn}
+              onPress={() => {
+                setEncounter(false);
+                travelRef.current.active = false;
+              }}
+            >
+              <Text style={styles.popBtnTxt}>
+                Continue
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -356,26 +413,111 @@ export default function MapScreen() {
   );
 }
 
-/* ---------- styles ---------- */
 const styles = StyleSheet.create({
-  container: { flex: 1, flexDirection: 'row', backgroundColor: colors.surface, paddingHorizontal: 40 },
-
-  sidebar: { width: SIDEBAR, backgroundColor: colors.surface, paddingVertical: 20, alignItems: 'center', gap: 24 },
-  btn: { width: '90%', backgroundColor: colors.accentGold, paddingVertical: 10, alignItems: 'center' },
-  btnTxt: { color: colors.backgroundBase, fontWeight: '700' },
-
-  mapWrap: { width: CONTAINER_W, height: CONTAINER_H, overflow: 'hidden' }, // fixed width/height
-  centerBtn: { position: 'absolute', right: 10, top: 10, backgroundColor: colors.accentGold, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 4 },
-  centerTxt: { color: colors.backgroundBase, fontWeight: '700' },
-
-  infobar: { position: 'absolute', bottom: 0, left: SIDEBAR, right: 0, height: INFOBAR, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', gap: 8 },
-  infoTxt: { color: colors.ivoryWhite },
-  actionBtn: { backgroundColor: colors.accentGold, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 4 },
-  actionTxt: { color: colors.backgroundBase, fontWeight: '700' },
-
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  popup: { width: 240, backgroundColor: colors.surface, padding: 24, alignItems: 'center', gap: 18 },
-  popTitle: { color: colors.ivoryWhite, fontSize: 20, fontWeight: '700' },
-  popBtn: { backgroundColor: colors.accentGold, paddingVertical: 8, paddingHorizontal: 22, borderRadius: 4 },
-  popBtnTxt: { color: colors.backgroundBase, fontWeight: '700' },
+  container: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    paddingHorizontal: 40,
+  },
+  sidebar: {
+    width: SIDEBAR,
+    backgroundColor: colors.surface,
+    paddingVertical: 20,
+    alignItems: 'center',
+    gap: 24,
+  },
+  charBtnWrapper: {
+    position: 'relative',
+    width: '90%',
+  },
+  btn: {
+    width: '100%',
+    backgroundColor: colors.accentGold,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  btnTxt: {
+    color: colors.backgroundBase,
+    fontWeight: '700',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.bloodRed,
+  },
+  mapWrap: {
+    width: CONTAINER_W,
+    height: CONTAINER_H,
+    overflow: 'hidden',
+  },
+  centerBtn: {
+    position: 'absolute',
+    right: 10,
+    top: 10,
+    backgroundColor: colors.accentGold,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  centerTxt: {
+    color: colors.backgroundBase,
+    fontWeight: '700',
+  },
+  infobar: {
+    position: 'absolute',
+    bottom: 0,
+    left: SIDEBAR,
+    right: 0,
+    height: INFOBAR,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoTxt: {
+    color: colors.ivoryWhite,
+  },
+  actionBtn: {
+    backgroundColor: colors.accentGold,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 4,
+  },
+  actionTxt: {
+    color: colors.backgroundBase,
+    fontWeight: '700',
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popup: {
+    width: 240,
+    backgroundColor: colors.surface,
+    padding: 24,
+    alignItems: 'center',
+    gap: 18,
+  },
+  popTitle: {
+    color: colors.ivoryWhite,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  popBtn: {
+    backgroundColor: colors.accentGold,
+    paddingVertical: 8,
+    paddingHorizontal: 22,
+    borderRadius: 4,
+  },
+  popBtnTxt: {
+    color: colors.backgroundBase,
+    fontWeight: '700',
+  },
 });

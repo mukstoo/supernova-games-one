@@ -1,14 +1,24 @@
-import { createSlice } from '@reduxjs/toolkit';
+// store/slices/uiSlice.ts
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-interface UIState { quitDialogOpen: boolean }
-const initialState: UIState = { quitDialogOpen: false };
+interface UIState {
+  quitDialogOpen: boolean;
+}
+
+const initialState: UIState = {
+  quitDialogOpen: false,
+};
 
 const uiSlice = createSlice({
   name: 'ui',
   initialState,
   reducers: {
-    toggleQuitDialog: s => { s.quitDialogOpen = !s.quitDialogOpen; },
-    setQuitDialog:   (s, a) => { s.quitDialogOpen = a.payload; },
+    toggleQuitDialog: state => {
+      state.quitDialogOpen = !state.quitDialogOpen;
+    },
+    setQuitDialog: (state, action: PayloadAction<boolean>) => {
+      state.quitDialogOpen = action.payload;
+    },
   },
 });
 

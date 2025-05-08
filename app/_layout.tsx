@@ -1,3 +1,4 @@
+// app/_layout.tsx
 import React, { useEffect } from 'react';
 import { BackHandler, Alert, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
@@ -7,13 +8,21 @@ import { StatusBar } from 'expo-status-bar';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { store, persistor } from '../store';
-import { colors } from '../theme/colors';
+import { colors } from '../theme/colors';  // <-- Named import of the color object
 
 export default function RootLayout() {
   useEffect(() => {
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-    NavigationBar.setVisibilityAsync('hidden'); // hides nav bar (Expo docs) :contentReference[oaicite:0]{index=0}
+    (async () => {
+      try {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        await NavigationBar.setVisibilityAsync('hidden');
+      } catch (err) {
+        console.warn('Failed to lock orientation or hide nav bar', err);
+      }
+    })();
+
     const handler = () => {
       Alert.alert('Quit game?', 'Do you really want to exit?', [
         { text: 'Cancel', style: 'cancel' },
@@ -28,21 +37,26 @@ export default function RootLayout() {
   return (
     <Provider store={store}>
       <PersistGate loading={null} persistor={persistor}>
-        <GestureHandlerRootView style={styles.root}>
-          <StatusBar hidden />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              animation: 'fade',
-              contentStyle: styles.root,
-            }}
-          />
-        </GestureHandlerRootView>
+        <SafeAreaProvider>
+          <GestureHandlerRootView style={styles.root}>
+            <StatusBar hidden />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                animation: 'fade',
+                contentStyle: styles.root,
+              }}
+            />
+          </GestureHandlerRootView>
+        </SafeAreaProvider>
       </PersistGate>
     </Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.backgroundBase },
+  root: {
+    flex: 1,
+    backgroundColor: colors.backgroundBase,  // <-- Now resolves correctly
+  },
 });
