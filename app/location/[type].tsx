@@ -15,12 +15,11 @@ export default function LocationPage() {
     <>
       <Stack.Screen
         options={{
-          headerShown: !!config,
-          title: config?.title ?? 'Unknown Location',
+          headerShown: false,
         }}
       />
       {config ? (
-        <LocationScreen config={config} />
+        <LocationScreen config={config} locationType={locationType} />
       ) : (
         <View style={styles.center}>
           <Text style={styles.text}>

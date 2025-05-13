@@ -19,6 +19,8 @@ import type { Weapon, Armor } from '../utils/items';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { useRouter } from 'expo-router';
+import { allQuests } from '../utils/quests';
+import type { Quest } from '../utils/questTypes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -38,6 +40,9 @@ export default function CharacterSheet() {
     inventory,
     equipped,
     attributePoints,
+    gold,
+    xp,
+    quests,
   } = useSelector((s: RootState) => s.player);
 
   const weapons = inventory.filter(
@@ -45,6 +50,10 @@ export default function CharacterSheet() {
   );
   const armors = inventory.filter(
     (i): i is Armor => 'damageReduction' in i
+  );
+
+  const activeQuests = allQuests.filter((q) =>
+    quests.active.includes(q.id)
   );
 
   const onAllocate = (key: keyof typeof traits) => {
@@ -57,6 +66,10 @@ export default function CharacterSheet() {
       <Text style={styles.points}>
         Unspent Points: {attributePoints}
       </Text>
+      <View style={styles.goldXpContainer}>
+        <Text style={styles.goldXpText}>Gold: {gold}</Text>
+        <Text style={styles.goldXpText}>XP: {xp}</Text>
+      </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Primary Traits</Text>
@@ -150,6 +163,22 @@ export default function CharacterSheet() {
         ))}
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Active Quests</Text>
+        {activeQuests.length > 0 ? (
+          activeQuests.map((q) => (
+            <View key={q.id} style={styles.questItem}>
+              <Text style={styles.questTitle}>{q.title}</Text>
+              <Text style={styles.questDesc}>{q.description}</Text>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.noQuestsText}>
+            No active quests.
+          </Text>
+        )}
+      </View>
+
       <TouchableOpacity
         style={styles.backBtn}
         onPress={() => router.back()}
@@ -176,6 +205,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.accentGold,
     marginBottom: spacing.lg,
+  },
+  goldXpContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: SCREEN_WIDTH * 0.9,
+    marginBottom: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: 6,
+  },
+  goldXpText: {
+    fontSize: 16,
+    color: colors.ivoryWhite,
+    fontWeight: '600',
   },
   section: {
     width: SCREEN_WIDTH * 0.9,
@@ -246,5 +289,26 @@ const styles = StyleSheet.create({
   backText: {
     color: colors.ivoryWhite,
     fontWeight: '600',
+  },
+  questItem: {
+    marginBottom: spacing.md,
+    padding: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: 4,
+  },
+  questTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.accentGold,
+    marginBottom: spacing.xs,
+  },
+  questDesc: {
+    fontSize: 14,
+    color: colors.ivoryWhite,
+  },
+  noQuestsText: {
+    fontSize: 14,
+    color: colors.steelGrey,
+    fontStyle: 'italic',
   },
 });

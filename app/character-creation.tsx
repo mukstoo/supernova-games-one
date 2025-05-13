@@ -14,11 +14,12 @@ import { useDispatch } from 'react-redux';
 import { useRouter } from 'expo-router';
 import { resetGameState } from '../store/slices/gameSlice';
 import { initializeCharacter, resetPlayer } from '../store/slices/playerSlice';
+import { resetUI } from '../store/slices/uiSlice';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CONTAINER_WIDTH = SCREEN_WIDTH * 0.9;
+const CONTAINER_WIDTH = SCREEN_WIDTH * 0.8;
 
 type StatKey = 'strength' | 'agility' | 'intelligence' | 'endurance';
 
@@ -41,16 +42,26 @@ export default function CharacterCreation() {
   const dispatch = useDispatch();
   const router = useRouter();
 
-  // extra 4 points beyond base 8
-  const pointsSpent =
-    Object.values(stats).reduce((sum, v) => sum + v, 0) - 8;
-  const pointsLeft = 4 - pointsSpent;
+  const pointsGainedFromLowering = Object.values(stats).filter(v => v === 1).length;
+  const pointsSpentOnIncreasing = Object.values(stats).reduce((sum, v) => sum + Math.max(0, v - 2), 0);
+  const pointsLeft = pointsGainedFromLowering - pointsSpentOnIncreasing;
+  const loweredStatsCount = pointsGainedFromLowering;
 
   const adjustStat = (key: StatKey, delta: number) => {
     setStats((prev) => {
-      const newVal = prev[key] + delta;
+      const currentVal = prev[key];
+      const newVal = currentVal + delta;
+
       if (newVal < 1 || newVal > 5) return prev;
-      if (delta > 0 && pointsLeft <= 0) return prev;
+
+      if (delta > 0) {
+        if (pointsLeft <= 0 || newVal > 5) return prev;
+      }
+      else if (delta < 0) {
+        if (newVal < 1) return prev;
+        if (currentVal === 2 && loweredStatsCount >= 3) return prev;
+      }
+
       return { ...prev, [key]: newVal };
     });
   };
@@ -62,11 +73,15 @@ export default function CharacterCreation() {
       return;
     }
 
-    // Fully reset both game & player slices
+    if (pointsLeft !== 0) {
+        Alert.alert('Stat points issue', `Please ensure all points are allocated correctly. Points left: ${pointsLeft}`);
+        return;
+    }
+
     dispatch(resetGameState());
     dispatch(resetPlayer());
+    dispatch(resetUI());
 
-    // Initialize with inventory, equipped, and computed stats
     dispatch(
       initializeCharacter({
         name: finalName,
@@ -75,6 +90,14 @@ export default function CharacterCreation() {
           spd: stats.agility,
           stm: stats.endurance,
           smr: stats.intelligence,
+          reputation: 2,
+          gatherInformation: 2,
+          travel: 2,
+          heal: 2,
+          craft: 2,
+          perception: 2,
+          stealth: 2,
+          athletics: 2,
         },
       })
     );
@@ -88,21 +111,26 @@ export default function CharacterCreation() {
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.container}>
-        <Text style={styles.title}>Create Your Hero</Text>
+        <Text style={styles.title}>Forge Your Legend</Text>
 
         <View style={styles.inputRow}>
           <Text style={styles.label}>Name:</Text>
           <TextInput
             style={styles.input}
-            placeholder="Hero name"
-            placeholderTextColor={colors.fadedBeige}
+            placeholder="Enter Name..."
+            placeholderTextColor={colors.steelGrey}
             value={name}
             onChangeText={setLocalName}
             maxLength={20}
+            selectionColor={colors.accentGold}
           />
         </View>
 
-        <Text style={styles.points}>Points left: {pointsLeft}</Text>
+        <Text style={styles.points}>Points Available: {pointsLeft}</Text>
+        <Text style={styles.instructions}>
+          Decrease a stat from 2 to 1 to gain a point (max 3).
+          Use points to increase other stats (max 5).
+        </Text>
 
         {(Object.keys(stats) as StatKey[]).map((key) => (
           <View key={key} style={styles.statRow}>
@@ -111,19 +139,18 @@ export default function CharacterCreation() {
               <TouchableOpacity
                 style={[
                   styles.adjustButton,
-                  stats[key] <= 1 && styles.adjustDisabled,
+                  (stats[key] <= 1 || (stats[key] === 2 && loweredStatsCount >= 3)) && styles.adjustDisabled,
                 ]}
                 onPress={() => adjustStat(key, -1)}
-                disabled={stats[key] <= 1}
+                disabled={stats[key] <= 1 || (stats[key] === 2 && loweredStatsCount >= 3)}
               >
-                <Text style={styles.adjustText}>–</Text>
+                <Text style={styles.adjustText}>−</Text>
               </TouchableOpacity>
               <Text style={styles.statValue}>{stats[key]}</Text>
               <TouchableOpacity
                 style={[
                   styles.adjustButton,
-                  (stats[key] >= 5 || pointsLeft <= 0) &&
-                    styles.adjustDisabled,
+                  (stats[key] >= 5 || pointsLeft <= 0) && styles.adjustDisabled,
                 ]}
                 onPress={() => adjustStat(key, +1)}
                 disabled={stats[key] >= 5 || pointsLeft <= 0}
@@ -135,7 +162,7 @@ export default function CharacterCreation() {
         ))}
 
         <TouchableOpacity style={styles.startButton} onPress={startGame}>
-          <Text style={styles.startButtonText}>Start Adventure</Text>
+          <Text style={styles.startButtonText}>Begin Your Journey</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -146,91 +173,139 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingVertical: spacing.lg,
-    backgroundColor: colors.backgroundBase,
+    paddingVertical: spacing.xl,
+    backgroundColor: colors.obsidianBlack,
   },
   container: {
     width: CONTAINER_WIDTH,
+    maxWidth: 500,
     alignSelf: 'center',
     gap: spacing.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.accentGold,
+    shadowColor: colors.obsidianBlack,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.ivoryWhite,
+    fontSize: 32,
+    fontWeight: 'bold',
+    fontFamily: 'serif',
+    color: colors.accentGold,
     textAlign: 'center',
+    marginBottom: spacing.md,
+    textShadowColor: colors.obsidianBlack,
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
+    marginBottom: spacing.sm,
   },
   label: {
     fontSize: 18,
     color: colors.ivoryWhite,
-    width: 80,
+    width: 100,
+    textAlign: 'right',
+    fontWeight: '500',
   },
   input: {
     flex: 1,
-    height: 44,
+    height: 48,
     borderWidth: 1,
     borderColor: colors.steelGrey,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.backgroundBase,
     color: colors.ivoryWhite,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     borderRadius: 6,
+    fontSize: 16,
   },
   points: {
-    fontSize: 16,
+    fontSize: 20,
+    fontWeight: 'bold',
     color: colors.accentGold,
     textAlign: 'center',
+  },
+  instructions: {
+    fontSize: 14,
+    color: colors.steelGrey,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.sm,
+    fontStyle: 'italic',
   },
   statRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.steelGrey,
   },
   statLabel: {
     fontSize: 18,
+    fontWeight: '600',
     color: colors.ivoryWhite,
   },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.lg,
   },
   adjustButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 8,
     backgroundColor: colors.accentGold,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.obsidianBlack,
   },
   adjustDisabled: {
     backgroundColor: colors.steelGrey,
+    borderColor: colors.obsidianBlack,
+    opacity: 0.6,
   },
   adjustText: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 24,
+    fontWeight: 'bold',
     color: colors.obsidianBlack,
+    lineHeight: 26,
   },
   statValue: {
-    width: 32,
+    width: 40,
     textAlign: 'center',
-    fontSize: 18,
+    fontSize: 22,
+    fontWeight: 'bold',
     color: colors.ivoryWhite,
   },
   startButton: {
-    marginTop: spacing.lg,
+    marginTop: spacing.xl,
     backgroundColor: colors.accentGold,
-    paddingVertical: spacing.sm,
-    borderRadius: 6,
+    paddingVertical: spacing.md,
+    borderRadius: 8,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.obsidianBlack,
+    shadowColor: colors.obsidianBlack,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
   startButtonText: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: 'bold',
     color: colors.obsidianBlack,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
 });

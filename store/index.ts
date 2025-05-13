@@ -14,11 +14,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import uiReducer from './slices/uiSlice';
 import playerReducer from './slices/playerSlice';
 import gameReducer from './slices/gameSlice';
+import locationReducer from './slices/locationSlice';
 
 const rootReducer = combineReducers({
   ui: uiReducer,
   player: playerReducer,
   game: gameReducer,
+  locations: locationReducer,
 });
 
 const persistConfig = {

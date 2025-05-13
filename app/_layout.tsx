@@ -19,7 +19,7 @@ export default function RootLayout() {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
         await NavigationBar.setVisibilityAsync('hidden');
       } catch (err) {
-        console.warn('Failed to lock orientation or hide nav bar', err);
+        // console.warn('Failed to lock orientation or hide nav bar', err); // Removed log
       }
     })();
 

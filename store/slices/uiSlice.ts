@@ -19,8 +19,9 @@ const uiSlice = createSlice({
     setQuitDialog: (state, action: PayloadAction<boolean>) => {
       state.quitDialogOpen = action.payload;
     },
+    resetUI: () => initialState,
   },
 });
 
-export const { toggleQuitDialog, setQuitDialog } = uiSlice.actions;
+export const { toggleQuitDialog, setQuitDialog, resetUI } = uiSlice.actions;
 export default uiSlice.reducer;
