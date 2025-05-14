@@ -58,13 +58,14 @@ function makeEnemy(id: string, name: string, traits: Traits): Enemy {
 
 const defaultEnemyTraits: Omit<Traits, 'str' | 'spd' | 'smr' | 'stm'> = {
   reputation: 0,
-  gatherInformation: 0,
+  persuade: 0,
   travel: 0,
-  heal: 0,
+  medicine: 0,
   craft: 0,
   perception: 1, // Give enemies basic perception
-  stealth: 1,    // Give enemies basic stealth
-  athletics: 1,  // Give enemies basic athletics
+  stealth: 0,    // Added, default to 0
+  athletics: 0,  // Added, default to 0
+  survival: 0,   // Added, default to 0
 };
 
 export const enemies: Enemy[] = [

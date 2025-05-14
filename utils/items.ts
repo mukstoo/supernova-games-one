@@ -13,6 +13,7 @@ export interface Weapon {
   damage: number;
   quality: Quality;
   image: typeof weaponImg;
+  value: number;
 }
 
 export interface Armor {
@@ -23,18 +24,23 @@ export interface Armor {
   damageReduction: number;
   quality: Quality;
   image: typeof armorImg;
+  value: number;
 }
+
+export type Item = Weapon | Armor;
 
 const strengths = [1, 2, 3, 4, 5] as const;
 
-const qualities: { quality: Quality; modifier: number }[] = [
-  { quality: 'low', modifier: -1 },
-  { quality: 'normal', modifier: 0 },
-  { quality: 'high', modifier: +1 },
+const baseValue = 10;
+
+const qualities: { quality: Quality; modifier: number; valueMultiplier: number }[] = [
+  { quality: 'low', modifier: -1, valueMultiplier: 0.5 },
+  { quality: 'normal', modifier: 0, valueMultiplier: 1 },
+  { quality: 'high', modifier: +1, valueMultiplier: 2 },
 ];
 
 export const weapons: Weapon[] = strengths.flatMap((str) =>
-  qualities.map(({ quality, modifier }) => ({
+  qualities.map(({ quality, modifier, valueMultiplier }) => ({
     id: `weapon-${str}-${quality}`,
     name: `${quality.charAt(0).toUpperCase() + quality.slice(1)} Weapon (STR ${str})`,
     strengthRequirement: str,
@@ -43,11 +49,12 @@ export const weapons: Weapon[] = strengths.flatMap((str) =>
     damage: Math.max(0, str + modifier),
     quality,
     image: weaponImg,
+    value: Math.max(1, Math.floor(baseValue * (str / 2) * valueMultiplier)),
   }))
 );
 
 export const armors: Armor[] = strengths.flatMap((str) =>
-  qualities.map(({ quality, modifier }) => ({
+  qualities.map(({ quality, modifier, valueMultiplier }) => ({
     id: `armor-${str}-${quality}`,
     name: `${quality.charAt(0).toUpperCase() + quality.slice(1)} Armor (STR ${str})`,
     strengthRequirement: str,
@@ -55,5 +62,6 @@ export const armors: Armor[] = strengths.flatMap((str) =>
     damageReduction: Math.max(0, str + modifier),
     quality,
     image: armorImg,
+    value: Math.max(1, Math.floor(baseValue * (str / 2) * valueMultiplier)),
   }))
 );

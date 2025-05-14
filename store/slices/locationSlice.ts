@@ -128,6 +128,10 @@ const locationSlice = createSlice({
      // Reducer to clear location state if needed (e.g., on leaving?)
      clearLocationState(state, action: PayloadAction<{ locationId: string }>) {
          delete state[action.payload.locationId];
+     },
+     resetLocations: (state) => {
+       // Reset the entire locations state to the initial empty object
+       Object.keys(state).forEach(key => delete state[key]);
      }
   },
   // --- Handle the fulfilled state of the async thunk --- 
@@ -155,7 +159,8 @@ const locationSlice = createSlice({
 
 export const { 
     pruneExpiredQuests,
-    clearLocationState
+    clearLocationState,
+    resetLocations
 } = locationSlice.actions;
 
 // Input selector to get the specific location's state

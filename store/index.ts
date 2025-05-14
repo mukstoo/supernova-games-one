@@ -15,12 +15,14 @@ import uiReducer from './slices/uiSlice';
 import playerReducer from './slices/playerSlice';
 import gameReducer from './slices/gameSlice';
 import locationReducer from './slices/locationSlice';
+import merchantReducer from './slices/merchantSlice';
 
 const rootReducer = combineReducers({
   ui: uiReducer,
   player: playerReducer,
   game: gameReducer,
   locations: locationReducer,
+  merchant: merchantReducer,
 });
 
 const persistConfig = {

@@ -29,6 +29,9 @@ import { LocationConfig, LocationType } from '../utils/locationConfig';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import DiceRoller from './DiceRoller';
+import { TradeModal } from './TradeModal';
+import { RestModal } from './RestModal';
+import { TrainModal } from './TrainModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -67,11 +70,14 @@ export default function LocationScreen({ config, locationType }: Props) {
   // --- Component State ---
   const [isRolling, setIsRolling] = useState(false);
   const [isQuestOverlayVisible, setIsQuestOverlayVisible] = useState(false); // State to control overlay visibility
+  const [isTradeModalVisible, setIsTradeModalVisible] = useState(false); // State for TradeModal
+  const [isRestModalVisible, setIsRestModalVisible] = useState(false); // State for RestModal
+  const [isTrainModalVisible, setIsTrainModalVisible] = useState(false); // State for TrainModal
   const [currentDiceRollResult, setCurrentDiceRollResult] = useState<number | null>(null);
   const [showLookForQuestsButton, setShowLookForQuestsButton] = useState(true); // Control visibility of the search button
 
   // Calculate modifier for the dice roll
-  const gatherModifier = (playerTraits.gatherInformation || 0) + (playerTraits.reputation || 0);
+  const gatherModifier = (playerTraits.persuade || 0) + (playerTraits.reputation || 0);
 
   // Prune expired quests for this location when component mounts or time changes
   useEffect(() => {
@@ -83,11 +89,14 @@ export default function LocationScreen({ config, locationType }: Props) {
   // --- Action Handler ---
   const onAction = (key: string) => {
     if (key === 'gather') {
-      // --- MODIFIED: Just show the overlay initially ---
       setIsQuestOverlayVisible(true); 
-      // Reset button visibility when opening
       setShowLookForQuestsButton(true); 
-      // Do NOT advance time or start rolling here anymore
+    } else if (key === 'trade') { 
+      setIsTradeModalVisible(true);
+    } else if (key === 'rest') { 
+      setIsRestModalVisible(true);
+    } else if (key === 'train') { // Handle 'train' action
+      setIsTrainModalVisible(true);
     } else {
       Alert.alert('Action', `Triggered: ${key}`);
     }
@@ -167,7 +176,7 @@ export default function LocationScreen({ config, locationType }: Props) {
       resizeMode="cover"
     >
       {/* Action Buttons (Hide if rolling or showing results?) */}
-      {!isRolling && !isQuestOverlayVisible && config.actions.map((a) => (
+      {!isRolling && !isQuestOverlayVisible && !isTradeModalVisible && !isRestModalVisible && !isTrainModalVisible && config.actions.map((a) => (
             <TouchableOpacity
               key={a.key}
               style={[styles.actionButton, getButtonPosition(a.key)]}
@@ -182,22 +191,33 @@ export default function LocationScreen({ config, locationType }: Props) {
         <Text style={styles.timeDisplayText}>Time: {ticks}</Text>
       </View>
 
-      {/* Back Button (Always visible?) */}
+      {/* Back Button */}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => {
-            // If showing results or rolling, back button should cancel that first
             if (isRolling || isQuestOverlayVisible) {
                 setIsRolling(false);
                 setIsQuestOverlayVisible(false);
                 setCurrentDiceRollResult(null);
+            } else if (isTradeModalVisible) { 
+                setIsTradeModalVisible(false);
+            } else if (isRestModalVisible) { 
+                setIsRestModalVisible(false);
+            } else if (isTrainModalVisible) { // Close train modal if open
+                setIsTrainModalVisible(false);
             } else {
-                router.back(); // Otherwise, go back to map
+                router.back(); 
             }
         }}
       >
         <Text style={styles.backButtonText}>
-          {isRolling || isQuestOverlayVisible ? 'Cancel' : 'Map'}
+          {isRolling || 
+           isQuestOverlayVisible || 
+           isTradeModalVisible || 
+           isRestModalVisible || 
+           isTrainModalVisible // Update text for TrainModal
+            ? 'Cancel' 
+            : 'Map'}
         </Text>
       </TouchableOpacity>
 
@@ -327,6 +347,25 @@ export default function LocationScreen({ config, locationType }: Props) {
         title={'Gather Information'} // Context for the roll
         onComplete={handleRollComplete}
         baseModifier={gatherModifier} // Pass the calculated modifier
+      />
+
+      {/* Trade Modal */}
+      <TradeModal 
+        visible={isTradeModalVisible}
+        onClose={() => setIsTradeModalVisible(false)}
+        locationId={locationId} // Pass locationId if needed by TradeModal later
+      />
+
+      {/* Rest Modal */}
+      <RestModal 
+        visible={isRestModalVisible}
+        onClose={() => setIsRestModalVisible(false)}
+      />
+
+      {/* Train Modal */}
+      <TrainModal 
+        visible={isTrainModalVisible}
+        onClose={() => setIsTrainModalVisible(false)}
       />
     </ImageBackground>
   );

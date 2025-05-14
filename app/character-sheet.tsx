@@ -16,6 +16,7 @@ import {
   allocatePoint,
 } from '../store/slices/playerSlice';
 import type { Weapon, Armor } from '../utils/items';
+import type { Traits } from '../store/slices/playerSlice';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { useRouter } from 'expo-router';
@@ -23,6 +24,21 @@ import { allQuests } from '../utils/quests';
 import type { Quest } from '../utils/questTypes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Define Skill Keys and Labels for the sheet
+const SKILL_KEYS: Array<keyof Pick<Traits, 'athletics' | 'persuade' | 'survival' | 'stealth' | 'medicine' | 'craft' | 'perception'>> = [
+  'athletics', 'persuade', 'survival', 'stealth', 'medicine', 'craft', 'perception'
+];
+
+const SKILL_LABELS: Record<typeof SKILL_KEYS[number], string> = {
+  athletics: 'Athletics',
+  persuade: 'Persuade',
+  survival: 'Survival',
+  stealth: 'Stealth',
+  medicine: 'Medicine',
+  craft: 'Craft',
+  perception: 'Perception',
+};
 
 export default function CharacterSheet() {
   const dispatch = useDispatch();
@@ -52,8 +68,12 @@ export default function CharacterSheet() {
     (i): i is Armor => 'damageReduction' in i
   );
 
-  const activeQuests = allQuests.filter((q) =>
-    quests.active.includes(q.id)
+  const activePlayerQuestIds = Object.values(quests)
+    .filter(qInfo => qInfo.status === 'active')
+    .map(qInfo => qInfo.id);
+
+  const activeQuests = allQuests.filter(qDef => 
+    activePlayerQuestIds.includes(qDef.id)
   );
 
   const onAllocate = (key: keyof typeof traits) => {
@@ -97,6 +117,16 @@ export default function CharacterSheet() {
             </View>
           )
         )}
+      </View>
+
+      {/* Skills Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Skills</Text>
+        {SKILL_KEYS.map((key) => (
+          <View key={key} style={styles.statRow}>
+            <Text style={styles.statLabel}>{SKILL_LABELS[key]}: {traits[key]}</Text>
+          </View>
+        ))}
       </View>
 
       <View style={styles.section}>
