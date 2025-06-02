@@ -37,16 +37,21 @@ export default function MapScreen() {
   );
   const [encounter, setEncounter] = useState(false);
   const [isQuestModalVisible, setIsQuestModalVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'failed'>('active');
 
-  const activeQuestsWithInfo = useMemo(() => {
+  const getQuestsByStatus = useCallback((status: 'active' | 'completed' | 'failed') => {
     return allQuests
-      .filter(q => playerQuests[q.id]?.status === 'active')
+      .filter(q => playerQuests[q.id]?.status === status)
       .map(q => ({
         ...q,
         statusInfo: playerQuests[q.id]
       }))
       .filter(q => q.statusInfo);
   }, [playerQuests]);
+
+  const activeQuestsWithInfo = useMemo(() => getQuestsByStatus('active'), [getQuestsByStatus]);
+  const completedQuestsWithInfo = useMemo(() => getQuestsByStatus('completed'), [getQuestsByStatus]);
+  const failedQuestsWithInfo = useMemo(() => getQuestsByStatus('failed'), [getQuestsByStatus]);
 
   const activeQuestLocations = useMemo(() => {
     return activeQuestsWithInfo
@@ -149,6 +154,23 @@ export default function MapScreen() {
     }
   };
 
+  let questsToDisplay: (Quest & { statusInfo: QuestStatusInfo })[] = [];
+  let modalTitle = 'Quests';
+  switch (activeTab) {
+    case 'active':
+      questsToDisplay = activeQuestsWithInfo;
+      modalTitle = 'Active Quests';
+      break;
+    case 'completed':
+      questsToDisplay = completedQuestsWithInfo;
+      modalTitle = 'Completed Quests';
+      break;
+    case 'failed':
+      questsToDisplay = failedQuestsWithInfo;
+      modalTitle = 'Failed Quests';
+      break;
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.main}>
@@ -250,26 +272,54 @@ export default function MapScreen() {
         visible={isQuestModalVisible}
         onRequestClose={() => {
           setIsQuestModalVisible(!isQuestModalVisible);
+          setActiveTab('active');
         }}
       >
         <View style={styles.modalCenteredView}>
           <View style={styles.modalView}>
-            <Text style={styles.modalTitle}>Active Quests</Text>
+            <View style={styles.tabContainer}>
+              <TouchableOpacity 
+                style={[styles.tabButton, activeTab === 'active' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('active')}
+              >
+                <Text style={[styles.tabButtonText, activeTab === 'active' && styles.tabButtonTextActive]}>Active ({activeQuestsWithInfo.length})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.tabButton, activeTab === 'completed' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('completed')}
+              >
+                <Text style={[styles.tabButtonText, activeTab === 'completed' && styles.tabButtonTextActive]}>Completed ({completedQuestsWithInfo.length})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.tabButton, activeTab === 'failed' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('failed')}
+              >
+                <Text style={[styles.tabButtonText, activeTab === 'failed' && styles.tabButtonTextActive]}>Failed ({failedQuestsWithInfo.length})</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalTitle}>{modalTitle}</Text>
             <ScrollView style={styles.modalScrollView}>
-              {activeQuestsWithInfo.length === 0 ? (
-                <Text style={styles.modalText}>No active quests.</Text>
+              {questsToDisplay.length === 0 ? (
+                <Text style={styles.modalText}>No quests in this category.</Text>
               ) : (
-                activeQuestsWithInfo.map((quest) => (
+                questsToDisplay.map((quest) => (
                   <TouchableOpacity
                     key={quest.id}
                     style={styles.questItem}
-                    onPress={() => handleQuestClick(quest)}
+                    onPress={() => activeTab === 'active' && handleQuestClick(quest)}
+                    disabled={activeTab !== 'active'}
                   >
                     <Text style={styles.questTitle}>{quest.title}</Text>
-                    {quest.statusInfo.location && (
+                    {quest.statusInfo.location && activeTab === 'active' && (
                        <Text style={styles.questLocationText}>
                          Location: ({quest.statusInfo.location.row}, {quest.statusInfo.location.col})
                        </Text>
+                    )}
+                    {(activeTab === 'completed' || activeTab === 'failed') && quest.statusInfo.completedAtTick && (
+                        <Text style={styles.questStatusDetailText}>
+                            {activeTab === 'completed' ? 'Completed at Tick: ' : 'Failed at Tick: '}{quest.statusInfo.completedAtTick}
+                        </Text>
                     )}
                   </TouchableOpacity>
                 ))
@@ -277,7 +327,10 @@ export default function MapScreen() {
             </ScrollView>
             <Pressable
               style={[styles.modalButton, styles.modalButtonClose]}
-              onPress={() => setIsQuestModalVisible(!isQuestModalVisible)}
+              onPress={() => {
+                setIsQuestModalVisible(!isQuestModalVisible);
+                setActiveTab('active');
+              }}
             >
               <Text style={styles.modalButtonText}>Close</Text>
             </Pressable>
@@ -443,6 +496,12 @@ const styles = StyleSheet.create({
     color: colors.fadedBeige,
     marginTop: spacing.xs,
   },
+  questStatusDetailText: {
+    fontSize: 12,
+    color: colors.steelGrey,
+    marginTop: spacing.xs,
+    fontStyle: 'italic',
+  },
   modalButton: {
     borderRadius: 8,
     paddingVertical: spacing.sm,
@@ -472,5 +531,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    marginBottom: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.steelGrey,
+    width: '100%',
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabButtonActive: {
+    borderBottomColor: colors.accentGold,
+  },
+  tabButtonText: {
+    fontSize: 14, 
+    color: colors.fadedBeige,
+  },
+  tabButtonTextActive: {
+    color: colors.accentGold,
+    fontWeight: 'bold',
   },
 });

@@ -415,8 +415,21 @@ const playerSlice = createSlice({
     },
 
     addGold: (state, action: PayloadAction<number>) => {
-      const gold = action.payload;
-      state.gold += gold;
+      state.gold += action.payload;
+      console.log(`Player gold updated to: ${state.gold}`);
+    },
+
+    addXp: (state, action: PayloadAction<number>) => {
+      state.xp += action.payload;
+      console.log(`Player XP updated to: ${state.xp}`);
+    },
+
+    spendGold: (state, action: PayloadAction<number>) => {
+      if (state.gold >= action.payload) {
+        state.gold -= action.payload;
+      } else {
+        console.warn("Player doesn't have enough gold to spend:", action.payload);
+      }
     },
 
     // --- TRAINING ACTIONS ---
@@ -499,6 +512,8 @@ export const {
   takeDamage,
   healPlayer,
   addGold,
+  addXp,
+  spendGold,
   // Export training actions
   setTrainingFocus,
   applyTraining,

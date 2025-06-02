@@ -1,593 +1,444 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  Image,
+  Animated,
+  Dimensions,
+} from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '../../store';
+import { RootState, AppDispatch } from '../../store';
 import { allQuests } from '../../utils/quests';
-import { Quest, QuestActionType } from '../../utils/questTypes';
-import { Traits, completeQuest, failQuest } from '../../store/slices/playerSlice';
+import {
+  Quest,
+  QuestNode,
+  QuestDecisionOption,
+  QuestCheckOption,
+  QuestBattleOption,
+  QuestNarrativeOption,
+  QuestReward,
+} from '../../utils/questTypes';
+import { Traits, completeQuest, failQuest, addGold, addXp, takeDamage } from '../../store/slices/playerSlice';
 import { advanceTime } from '../../store/slices/gameSlice';
 import DiceRoller from '../../components/DiceRoller';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 
-type QuestEntryStep = 
-  | 'initialising'
-  | 'rollingEntryChecks' 
-  | 'showingEntryResults'
-  | 'choosingAction'
-  | 'rollingAction'
-  | 'showingActionResult'
-  | 'battlePending'
-  | 'escapePending'
-  | 'questFailed' // e.g. trap damage too high
-  | 'questComplete'; // Or some other terminal state
+// Path for require should be relative from this file: app/quest-entry/[questId].tsx to assets/
+const REQUIRED_PLACEHOLDER_IMG = require('../../assets/images/menu_background.png');
+const FADE_DURATION = 300;
 
-// --- New types for Kill Orcs quest flow ---
-type OrcQuestStep = 
-  | 'idle' 
-  | 'start_kill_orcs'
-  | 'rolling_stealth_kill_orcs'
-  | 'awaiting_perception_kill_orcs'
-  | 'rolling_perception_kill_orcs'
-  | 'stealth_success_choose_action' // NEW: Player succeeded initial stealth, choosing next action
-  | 'awaiting_ambush_stealth_roll' // NEW: Player chose to ambush, awaiting roll
-  | 'rolling_ambush_stealth'      // NEW: Rolling the ambush stealth check
-  | 'battle_direct_kick_door'     // NEW: Battle initiated via kick door (no ambush)
-  | 'battle_ambushed_enemies'     // NEW: Player successfully ambushed enemies
-  | 'battle_ambushed_player'      // NEW: Player failed ambush/perception, player is ambushed
-  | 'battle_direct_no_ambush' ;   // NEW: Player failed initial stealth but succeeded perception (direct confrontation)
+// Get screen height for full height image - REMOVED as height: '100%' should work
+// const screenHeight = Dimensions.get('window').height;
 
-// Refined DiceRollContext
-type DiceRollContext = 'none' | 'orc_initial_stealth' | 'orc_perception' | 'orc_ambush_stealth';
+interface DiceRollPayload {
+  option: QuestCheckOption;
+  baseModifier: number;
+  title: string;
+}
 
 export default function QuestEntryScreen() {
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch: AppDispatch = useDispatch();
   const { questId } = useLocalSearchParams<{ questId: string }>();
-  
+
   const playerTraits = useSelector((s: RootState) => s.player.traits);
-  const gameTicks = useSelector((s: RootState) => s.game.ticks); // For quest completion/failure
+  const gameTicks = useSelector((s: RootState) => s.game.ticks); // For quest completion/failure actions
 
-  const [step, setStep] = useState<QuestEntryStep>('initialising');
-  const [currentQuest, setCurrentQuest] = useState<Quest | null>(null);
-
-  // --- State for Kill Orcs quest ---
-  const [isOrcQuest, setIsOrcQuest] = useState(false);
-  const [orcQuestStep, setOrcQuestStep] = useState<OrcQuestStep>('idle');
-  const [isDiceRollerVisible, setIsDiceRollerVisible] = useState(false);
-  const [diceRollContext, setDiceRollContext] = useState<DiceRollContext>('none');
-  const [currentDiceModifier, setCurrentDiceModifier] = useState(0);
-  const [currentDiceTitle, setCurrentDiceTitle] = useState('');
-  // --- End State for Kill Orcs quest ---
-
-  // Entry rolls and outcomes
-  const [perceptionRoll, setPerceptionRoll] = useState<number | null>(null);
-  const [stealthRoll, setStealthRoll] = useState<number | null>(null);
-  const [wasAttackedOnEntry, setWasAttackedOnEntry] = useState(false);
-  const [wasAmbushedOnEntry, setWasAmbushedOnEntry] = useState(false);
+  const [currentQuestData, setCurrentQuestData] = useState<Quest | null>(null);
+  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
+  const [currentNode, setCurrentNode] = useState<QuestNode | null>(null);
   
-  // Action-related states
-  const [chosenAction, setChosenAction] = useState<QuestActionType | null>(null);
-  const [actionRoll, setActionRoll] = useState<number | null>(null);
-  const [watchBonusActive, setWatchBonusActive] = useState(false);
-  const [actionResultText, setActionResultText] = useState<string>('');
+  // Store the string URI from quest data, or undefined if it should use the placeholder
+  const [imageStringUri, setImageStringUri] = useState<string | undefined>(undefined);
+
+  const [isDiceRollerVisible, setIsDiceRollerVisible] = useState(false);
+  const [diceRollPayload, setDiceRollPayload] = useState<DiceRollPayload | null>(null);
+
+  const animationOpacity = useRef(new Animated.Value(0)).current;
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     if (questId) {
-      const foundQuest = allQuests.find(q => q.id === questId);
-      if (foundQuest) {
-        setCurrentQuest(foundQuest);
-        if (foundQuest.questType === 'kill_orcs') {
-          setIsOrcQuest(true);
-          setOrcQuestStep('start_kill_orcs');
-          setStep('initialising'); // Don't use generic steps for orc quest
-        } else {
-          setIsOrcQuest(false);
-          setOrcQuestStep('idle');
-          setStep('rollingEntryChecks'); // Proceed with generic flow
-        }
+      const foundQuest = allQuests.find((q) => q.id === questId);
+      if (foundQuest && 'nodes' in foundQuest && 'entryNodeId' in foundQuest) {
+        const typedQuest = foundQuest as Quest;
+        setCurrentQuestData(typedQuest);
+        setCurrentNodeId(typedQuest.entryNodeId);
+        setImageStringUri(typedQuest.img); // Set initial quest image URI
+
+        Animated.timing(animationOpacity, {
+          toValue: 1,
+          duration: FADE_DURATION,
+          useNativeDriver: true,
+        }).start();
       } else {
-        Alert.alert('Error', 'Quest not found.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Error', 'Quest not found or has invalid structure.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       }
     } else {
-      Alert.alert('Error', 'No Quest ID provided.', [{ text: 'OK', onPress: () => router.back() }]);
+      Alert.alert('Error', 'No Quest ID provided.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
     }
-  }, [questId, router]);
+  }, [questId, router, animationOpacity]);
 
-  if (!currentQuest) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading Quest...</Text>
-      </View>
+  useEffect(() => {
+    if (currentQuestData && currentNodeId) {
+      const node = currentQuestData.nodes[currentNodeId];
+      setCurrentNode(node || null);
+      setImageStringUri(node?.img || currentQuestData.img);
+      setActionFeedback(null);
+      if (node && (node.nodeType === 'questComplete' || node.nodeType === 'questFail')) {
+        setTimeout(() => handleTerminalNode(node), FADE_DURATION + 50);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestData, currentNodeId]);
+
+  const triggerNodeTransition = useCallback((nextNodeId: string | null) => {
+    if (!nextNodeId || isTransitioning) return;
+    
+    setIsTransitioning(true);
+    Animated.timing(animationOpacity, {
+      toValue: 0,
+      duration: FADE_DURATION,
+      useNativeDriver: true,
+    }).start(() => {
+      setCurrentNodeId(nextNodeId);
+      Animated.timing(animationOpacity, {
+        toValue: 1,
+        duration: FADE_DURATION,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsTransitioning(false);
+      });
+    });
+  }, [animationOpacity, isTransitioning]);
+
+  const grantRewards = useCallback((rewards: QuestReward) => {
+    if (rewards.xp && dispatch && typeof addXp === 'function') dispatch(addXp(rewards.xp));
+    if (rewards.gold && dispatch && typeof addGold === 'function') dispatch(addGold(rewards.gold));
+    // if (rewards.items && rewards.items.length > 0 && typeof dispatch === 'function' && typeof addItems === 'function') dispatch(addItems(rewards.items));
+    // if (rewards.reputationChange && typeof dispatch === 'function' && typeof updateReputation === 'function') dispatch(updateReputation(rewards.reputationChange));
+    console.log('Granted rewards:', rewards);
+  }, [dispatch]);
+
+  const handleTerminalNode = useCallback((node: QuestNode) => {
+    if (!currentQuestData) return;
+    if (node.nodeType === 'questComplete') {
+      if (node.rewards) grantRewards(node.rewards);
+      if (currentQuestData.reward) grantRewards(currentQuestData.reward);
+      dispatch(completeQuest({ questId: currentQuestData.id, currentTick: gameTicks }));
+    } else if (node.nodeType === 'questFail') {
+      if (node.rewards) grantRewards(node.rewards);
+      dispatch(failQuest({ questId: currentQuestData.id, currentTick: gameTicks }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestData, dispatch, gameTicks, grantRewards]);
+  
+  const handleCheckOption = (option: QuestCheckOption) => {
+    const skillValue = playerTraits[option.skill] || 0;
+    setDiceRollPayload({
+        option,
+        baseModifier: skillValue,
+        title: `Check: ${option.description} (DC ${option.dc})`
+    });
+    setIsDiceRollerVisible(true);
+  };
+
+  const handleDiceRollComplete = (total: number, faces: string[]) => {
+    setIsDiceRollerVisible(false);
+    if (!diceRollPayload || !currentQuestData) return;
+
+    const { option } = diceRollPayload;
+    dispatch(advanceTime());
+
+    let nextNodeId: string;
+    let feedback = `Rolled ${total} (Dice: ${faces.join(', ')}) vs DC ${option.dc} for ${option.skill}.`;
+
+    if (total >= option.dc) {
+      feedback += ' Success!';
+      nextNodeId = option.successOutcome;
+    } else {
+      feedback += ' Failure!';
+      nextNodeId = option.failureOutcome;
+      if (option.failureConsequence) {
+        feedback += ` ${option.failureConsequence.description || ''}`;
+        if (option.failureConsequence.damage && typeof dispatch === 'function' && typeof takeDamage === 'function') {
+          dispatch(takeDamage(option.failureConsequence.damage));
+          feedback += ` You take ${option.failureConsequence.damage} damage.`;
+          console.log(`Player takes ${option.failureConsequence.damage} damage via dispatch.`);
+        } else if (option.failureConsequence.damage) {
+            console.log(`Player would take ${option.failureConsequence.damage} damage if takeDamage action was available.`);
+             feedback += ` You take ${option.failureConsequence.damage} damage. (takeDamage action not dispatched).`;
+        }
+      }
+    }
+    setActionFeedback(feedback);
+    
+    const targetNode = currentQuestData.nodes[nextNodeId];
+    if(targetNode?.rewards) grantRewards(targetNode.rewards);
+
+    triggerNodeTransition(nextNodeId);
+    setDiceRollPayload(null);
+  };
+
+  const handleBattleOption = (option: QuestBattleOption) => {
+    if (!currentQuestData) return;
+
+    let battleAlertMessage = `Battle! Facing Enemy: ${option.enemyPartyId}!`;
+    if (option.playerAdvantage === 'ambush') {
+      battleAlertMessage = `Battle! Ambushing Enemy: ${option.enemyPartyId}!`;
+    } else if (option.playerAdvantage === 'ambushed') {
+      battleAlertMessage = `Battle! Ambushed by Enemy: ${option.enemyPartyId}!`;
+    }
+    
+    // Set action feedback for UI update before alert
+    setActionFeedback(`Initiating battle with ${option.enemyPartyId}. Advantage: ${option.playerAdvantage || 'none'}.`);
+    console.log('Battle initiated:', option);
+
+    // Use Alert for placeholder
+    Alert.alert('Battle System Engage', battleAlertMessage + '\n\n(Battle system not yet implemented. Assuming player victory for quest progression.)', [
+        { text: 'Proceed (Victory)', onPress: () => {
+            dispatch(advanceTime(5)); // Example time advance
+            const targetNode = currentQuestData.nodes[option.outcome];
+            if(targetNode?.rewards) grantRewards(targetNode.rewards);
+            triggerNodeTransition(option.outcome);
+        }}
+    ]);
+  };
+
+  const handleNarrativeOption = (option: QuestNarrativeOption) => {
+    if (!currentQuestData) return;
+    dispatch(advanceTime());
+    const targetNode = currentQuestData.nodes[option.outcome];
+    if(targetNode?.rewards) grantRewards(targetNode.rewards);
+    triggerNodeTransition(option.outcome);
+  };
+  
+  const handleQuestLinkOption = (node: QuestNode) => {
+    if (!node.linkedQuestId || !currentQuestData) return;
+    Alert.alert('Quest Link', `This quest leads to: ${node.linkedQuestId}. You may need to find its new location or it might start immediately.`,
+      [{ text: 'OK', onPress: () => router.back() }]
     );
   }
 
-  const handleEntryRollsComplete = (perceptionResult: number, stealthResult: number) => {
-    setPerceptionRoll(perceptionResult);
-    setStealthRoll(stealthResult);
-
-    const perceptionDC = currentQuest.perceptionDC || 0; // Enemies trying to perceive player
-    const stealthDC = currentQuest.stealthDC || 0;     // Player trying to perceive enemies/traps
-
-    // Player's perception vs quest's stealthDC (for spotting traps/ambushes)
-    const spottedAmbush = perceptionResult >= stealthDC;
-    // Player's stealth vs quest's perceptionDC (for not being seen)
-    const playerStealthed = stealthResult >= perceptionDC;
-
-    if (!spottedAmbush) {
-        setWasAmbushedOnEntry(true);
-        // Player is ambushed regardless of their own stealth if they fail to spot it.
-    }
-    if (!playerStealthed) {
-        setWasAttackedOnEntry(true);
-        // Player is attacked if they fail their stealth, even if they spotted an ambush.
-    }
-
-    setActionResultText(`Entry Rolls: Perception ${perceptionResult} (DC ${stealthDC}), Stealth ${stealthResult} (DC ${perceptionDC})`);
-    setStep('showingEntryResults');
-  };
-
-  const proceedFromEntryResults = () => {
-    if (wasAttackedOnEntry || wasAmbushedOnEntry) {
-        setStep('battlePending');
-    } else {
-        // Player successfully sneaked in AND spotted everything (or there was nothing to spot)
-        if (currentQuest.availableActions && currentQuest.availableActions.length > 0) {
-            setStep('choosingAction');
-        } else {
-            // No actions, perhaps quest is just an observation or auto-completes?
-            // For now, let's assume this means direct completion or objective achieved.
-            setActionResultText('No further actions. Objective likely achieved by stealth.');
-            setStep('questComplete'); 
-        }
+  const handleOptionClick = (option: QuestDecisionOption) => {
+    if (isTransitioning) return;
+    switch (option.type) {
+      case 'check': handleCheckOption(option as QuestCheckOption); break;
+      case 'battle': handleBattleOption(option as QuestBattleOption); break;
+      case 'narrative': handleNarrativeOption(option as QuestNarrativeOption); break;
+      default: console.warn('Unknown option type:', option);
     }
   };
 
-  // --- Handler for Kill Orcs dice rolls ---
-  const handleOrcQuestRollComplete = (rollValue: number) => {
-    setIsDiceRollerVisible(false);
-    dispatch(advanceTime()); // Each roll takes time
-
-    if (!currentQuest) return; // Should not happen
-    
-    let dc: number;
-    // Determine DC based on context
-    if (diceRollContext === 'orc_initial_stealth' || diceRollContext === 'orc_ambush_stealth') {
-      dc = currentQuest.stealthDC || 2;
-    } else if (diceRollContext === 'orc_perception') {
-      dc = currentQuest.perceptionDC || 2;
-    } else {
-      console.error('Unknown dice roll context:', diceRollContext);
-      return; // Should not happen
-    }
-
-    const totalRollValue = rollValue; // DiceRoller already incorporates modifier
-
-    if (diceRollContext === 'orc_initial_stealth') {
-      if (totalRollValue >= dc) {
-        setOrcQuestStep('stealth_success_choose_action');
-      } else {
-        // Failed initial stealth, go to perception check
-        setOrcQuestStep('rolling_perception_kill_orcs'); 
-      }
-    } else if (diceRollContext === 'orc_perception') {
-      if (totalRollValue >= dc) {
-        // Success on perception after failing initial stealth -> direct battle
-        setOrcQuestStep('battle_direct_no_ambush');
-      } else {
-        // Failure on perception after failing initial stealth -> player ambushed
-        setOrcQuestStep('battle_ambushed_player');
-      }
-    } else if (diceRollContext === 'orc_ambush_stealth') {
-       // This roll happens AFTER succeeding initial stealth and choosing to ambush
-      if (totalRollValue >= dc) {
-        // Success on ambush stealth -> enemies ambushed
-        setOrcQuestStep('battle_ambushed_enemies');
-      } else {
-        // Failure on ambush stealth -> player caught off guard (ambushed)
-        setOrcQuestStep('battle_ambushed_player');
-      }
-    }
-    setDiceRollContext('none');
-  };
-
-  // More handlers will go here for choosingAction, rollingAction, etc.
-
-  // --- Render logic for Kill Orcs Quest ---
-  if (isOrcQuest && currentQuest) {
+  if (!currentQuestData || !currentNode) {
     return (
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.container}>
-          <Text style={styles.title}>{currentQuest.title}</Text>
-          <Text style={styles.description}>{currentQuest.description}</Text>
+      <View style={styles.container}>
+        <Text style={styles.loadingText}>Loading Quest Details...</Text>
+      </View>
+    );
+  }
+  
+  if ((currentNode.nodeType === 'questComplete' || currentNode.nodeType === 'questFail') && currentNode.options.length === 0) {
+    return (
+      <Animated.View style={[styles.outerContainer, { opacity: animationOpacity }]}>
+        <View style={styles.imageContainer}>
+          <Image
+            source={imageStringUri ? { uri: imageStringUri } : REQUIRED_PLACEHOLDER_IMG}
+            style={styles.questImage}
+            onError={() => setImageStringUri(undefined)}
+          />
+        </View>
+        <ScrollView 
+          style={styles.scrollableContentContainer} 
+          contentContainerStyle={styles.scrollableContentInnerContainer}
+        >
+          <Text style={styles.title}>{currentQuestData.title}</Text>
+          {currentNode.title && <Text style={styles.nodeTitle}>{currentNode.title}</Text>}
           <View style={styles.separator} />
+          <Text style={styles.description}>{currentNode.description}</Text>
+          {actionFeedback && <Text style={styles.feedbackText}>{actionFeedback}</Text>}
+          <TouchableOpacity style={styles.button} onPress={() => router.back()}>
+            <Text style={styles.buttonText}>{currentNode.nodeType === 'questComplete' ? 'Complete Quest' : 'Acknowledge Failure'}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </Animated.View>
+    );
+  } else if (currentNode.nodeType === 'linkToQuest') {
+    return (
+      <Animated.View style={[styles.outerContainer, { opacity: animationOpacity }]}>
+        <View style={styles.imageContainer}>
+          <Image
+            source={imageStringUri ? { uri: imageStringUri } : REQUIRED_PLACEHOLDER_IMG}
+            style={styles.questImage}
+            onError={() => setImageStringUri(undefined)}
+          />
+        </View>
+        <ScrollView 
+          style={styles.scrollableContentContainer} 
+          contentContainerStyle={styles.scrollableContentInnerContainer}
+        >
+          <Text style={styles.title}>{currentQuestData.title}</Text>
+          {currentNode.title && <Text style={styles.nodeTitle}>{currentNode.title}</Text>}
+          <View style={styles.separator} />
+          <Text style={styles.description}>{currentNode.description}</Text>
+          <TouchableOpacity style={styles.button} onPress={() => handleQuestLinkOption(currentNode)}>
+            <Text style={styles.buttonText}>Continue to Next Quest</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </Animated.View>
+    );
+  }
 
-          {orcQuestStep === 'start_kill_orcs' && (
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Approach the Orcs</Text>
-              <Text style={styles.stepInstruction}>You attempt to approach the orcs unseen. Make a Stealth check.</Text>
-              <Text style={styles.stepInstruction}>(DC: {currentQuest.stealthDC || 'N/A'}, Your Stealth: {playerTraits.stealth})</Text>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  setCurrentDiceModifier(playerTraits.stealth);
-                  setCurrentDiceTitle('Stealth Check');
-                  setDiceRollContext('orc_initial_stealth');
-                  setIsDiceRollerVisible(true);
-                }}
-              >
-                <Text style={styles.buttonText}>Attempt Stealth</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+  return (
+    <Animated.View style={[styles.outerContainer, { opacity: animationOpacity }]}>
+      <View style={styles.imageContainer}>
+        <Image
+          source={imageStringUri ? { uri: imageStringUri } : REQUIRED_PLACEHOLDER_IMG}
+          style={styles.questImage}
+          onError={() => setImageStringUri(undefined)}
+        />
+      </View>
+      <ScrollView 
+        style={styles.scrollableContentContainer}
+        contentContainerStyle={styles.scrollableContentInnerContainer}
+      >
+        <Text style={styles.title}>{currentQuestData.title}</Text>
+        {currentNode.title && <Text style={styles.nodeTitle}>{currentNode.title}</Text>}
+        <View style={styles.separator} />
+        <Text style={styles.description}>{currentNode.description}</Text>
 
-          {orcQuestStep === 'awaiting_ambush_stealth_roll' && (
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Ambush Decision</Text>
-              <Text style={styles.stepInstruction}>You can either ambush the orcs or try to sneak past them. Choose your action.</Text>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  setOrcQuestStep('rolling_ambush_stealth');
-                }}
-              >
-                <Text style={styles.buttonText}>Ambush</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  setOrcQuestStep('rolling_perception_kill_orcs');
-                }}
-              >
-                <Text style={styles.buttonText}>Sneak Past</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+        {actionFeedback && <Text style={styles.feedbackText}>{actionFeedback}</Text>}
 
-          {orcQuestStep === 'rolling_ambush_stealth' && (
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Ambush Stealth Check</Text>
-              <Text style={styles.stepInstruction}>Roll for ambush stealth.</Text>
-              <Text style={styles.stepInstruction}>(DC: {currentQuest.stealthDC || 'N/A'}, Your Stealth: {playerTraits.stealth})</Text>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  setCurrentDiceModifier(playerTraits.stealth);
-                  setCurrentDiceTitle('Ambush Stealth Check');
-                  setDiceRollContext('orc_ambush_stealth');
-                  setIsDiceRollerVisible(true);
-                }}
-              >
-                <Text style={styles.buttonText}>Roll</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {orcQuestStep === 'stealth_success_choose_action' && (
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Stealth Successful!</Text>
-              <Text style={styles.stepInstruction}>You've managed to approach undetected. What's the plan?</Text>
-              
-              {/* --- NEW OPTIONS --- */}
-              <TouchableOpacity 
-                style={[styles.button, styles.disabledButton]} // Disabled for now
-                onPress={() => Alert.alert('Observe', 'Observation logic not yet implemented.')}
-                disabled={true} // Disable Observe for now
-              >
-                <Text style={styles.buttonText}>Observe Orcs (Disabled)</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  // Directly go to non-ambush battle
-                  setOrcQuestStep('battle_direct_kick_door');
-                }}
-              >
-                <Text style={styles.buttonText}>Kick the Door In!</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  // Proceed to ambush stealth check
-                  setOrcQuestStep('rolling_ambush_stealth');
-                }}
-              >
-                <Text style={styles.buttonText}>Attempt Ambush (Stealth DC: {currentQuest.stealthDC || 'N/A'})</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          
-          {(orcQuestStep === 'battle_direct_kick_door' || orcQuestStep === 'battle_direct_no_ambush') && (
-            // Covers: Kick Door OR (Failed Initial Stealth + Success Perception)
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Battle!</Text>
-              <Text style={styles.outcomeNeutral}>You confront the Orcs directly!</Text>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  router.push({ 
-                    pathname: '/battle', 
-                    params: { 
-                      enemyId: 'orc_fighter', 
-                      // ambushed: 'false', // OLD - Replace with specific params
-                      playerAmbushed: 'false', // NEW
-                      enemyAmbushed: 'false', // NEW
-                      questId: currentQuest.id 
-                    } 
-                  });
-                }}
-              >
-                <Text style={styles.buttonText}>Engage Orcs</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {orcQuestStep === 'battle_ambushed_enemies' && (
-            // Covers: Success Ambush Stealth
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Ambush!</Text>
-              <Text style={styles.outcomeGood}>You caught the Orcs by surprise!</Text> 
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  router.push({ 
-                    pathname: '/battle', 
-                    params: { 
-                      enemyId: 'orc_fighter', 
-                      // ambushed: 'true', // OLD
-                      playerAmbushed: 'false', // NEW
-                      enemyAmbushed: 'true', // NEW
-                      questId: currentQuest.id
-                    } 
-                  });
-                }}
-              >
-                <Text style={styles.buttonText}>Attack!</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          
-          {orcQuestStep === 'battle_ambushed_player' && (
-             // Covers: (Failed Initial Stealth + Failed Perception) OR (Failed Ambush Stealth)
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Ambushed!</Text>
-              <Text style={styles.outcomeBad}>The Orcs got the drop on you!</Text>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  router.push({ 
-                    pathname: '/battle', 
-                    params: { 
-                      enemyId: 'orc_fighter', 
-                      // ambushed: 'true', // OLD
-                      playerAmbushed: 'true', // NEW
-                      enemyAmbushed: 'false', // NEW
-                      questId: currentQuest.id 
-                    } 
-                  });
-                }}
-              >
-                <Text style={styles.buttonText}>Defend Yourself!</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {orcQuestStep === 'rolling_perception_kill_orcs' && (
-            <View style={styles.stepContainer}>
-              <Text style={styles.stepTitle}>Stealth Failed!</Text>
-              <Text style={styles.stepInstruction}>You failed to sneak past. You can try to spot them before they spot you. Make a Perception check.</Text>
-              <Text style={styles.stepInstruction}>(DC: {currentQuest.perceptionDC || 'N/A'}, Your Perception: {playerTraits.perception})</Text>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                  setCurrentDiceModifier(playerTraits.perception);
-                  setCurrentDiceTitle('Perception Check');
-                  setDiceRollContext('orc_perception');
-                  setIsDiceRollerVisible(true);
-                }}
-              >
-                <Text style={styles.buttonText}>Attempt Perception</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {isDiceRollerVisible && currentQuest && (
-            <DiceRoller
-              visible={isDiceRollerVisible}
-              title={currentDiceTitle}
-              baseModifier={currentDiceModifier}
-              onComplete={(rollValue, _faces) => handleOrcQuestRollComplete(rollValue)}
-            />
-          )}
+        <View style={styles.optionsContainer}>
+          {currentNode.options.map((option, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.button}
+              onPress={() => handleOptionClick(option)}
+              disabled={isTransitioning}
+            >
+              <Text style={styles.buttonText}>{option.description}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </ScrollView>
-    );
-  }
 
-  // --- Original Render Logic for Generic Quests ---
-  return (
-    <ScrollView contentContainerStyle={styles.scrollContainer}>
-      <View style={styles.container}>
-        <Text style={styles.title}>{currentQuest.title}</Text>
-        <Text style={styles.description}>{currentQuest.description}</Text>
-        <View style={styles.separator} />
-
-        {step === 'rollingEntryChecks' && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.stepTitle}>Initial Approach...</Text>
-            <Text style={styles.stepInstruction}>Roll for Perception and Stealth to enter the area.</Text>
-            {/* This will need two DiceRollers or one that handles two rolls */}
-            {/* For simplicity, let's assume one DiceRoller can be used twice or we adapt it */}
-            <Text style={styles.hintText}>(Simulating two separate rolls for now)</Text>
-            <TouchableOpacity 
-                style={styles.button}
-                onPress={() => {
-                    // Simulate rolls for now, replace with actual DiceRoller calls
-                    const pRoll = Math.floor(Math.random() * 10) + 1 + playerTraits.perception + (watchBonusActive ? 1 : 0);
-                    const sRoll = Math.floor(Math.random() * 10) + 1 + playerTraits.stealth + (watchBonusActive ? 1 : 0);
-                    handleEntryRollsComplete(pRoll, sRoll);
-                }}
-            >
-                <Text style={styles.buttonText}>Roll Perception & Stealth</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {step === 'showingEntryResults' && (
-            <View style={styles.stepContainer}>
-                <Text style={styles.stepTitle}>Entry Attempt</Text>
-                <Text style={styles.resultText}>{actionResultText}</Text>
-                {wasAmbushedOnEntry && <Text style={styles.outcomeBad}>You were ambushed!</Text>}
-                {wasAttackedOnEntry && !wasAmbushedOnEntry && <Text style={styles.outcomeBad}>You were detected!</Text>}
-                {!(wasAttackedOnEntry || wasAmbushedOnEntry) && <Text style={styles.outcomeGood}>You entered undetected and aware.</Text>}
-                <TouchableOpacity style={styles.button} onPress={proceedFromEntryResults}>
-                    <Text style={styles.buttonText}>Continue</Text>
-                </TouchableOpacity>
-            </View>
-        )}
-
-        {step === 'battlePending' && (
-            <View style={styles.stepContainer}>
-                <Text style={styles.stepTitle}>Engagement!</Text>
-                {wasAmbushedOnEntry && <Text style={styles.outcomeBad}>Ambushed! Enemies get the first strike!</Text>}
-                {wasAttackedOnEntry && !wasAmbushedOnEntry && <Text style={styles.outcomeBad}>Detected! Prepare for battle!</Text>}
-                <TouchableOpacity style={styles.button} onPress={() => router.replace('/map')}> 
-                    <Text style={styles.buttonText}>To Battle (Back to Map for now)</Text>
-                </TouchableOpacity>
-            </View>
-        )}
-
-        {step === 'choosingAction' && (
-            <View style={styles.stepContainer}>
-                <Text style={styles.stepTitle}>Choose Your Action</Text>
-                {/* Action buttons will be rendered here */}
-                <Text>Actions TBD</Text>
-                 <TouchableOpacity style={styles.button} onPress={() => router.back()}> 
-                    <Text style={styles.buttonText}>Leave (Back to Map)</Text>
-                </TouchableOpacity>
-            </View>
-        )}
-        
-        {step === 'questComplete' && (
-             <View style={styles.stepContainer}>
-                <Text style={styles.stepTitle}>Objective Achieved!</Text>
-                <Text style={styles.resultText}>{actionResultText}</Text>
-                <TouchableOpacity style={styles.button} onPress={() => router.replace('/map')}> 
-                    <Text style={styles.buttonText}>Return to Map</Text>
-                </TouchableOpacity>
-            </View>
-        )}
-
-        {/* Other steps (rollingAction, showingActionResult) will be added here */}
-
-      </View>
-    </ScrollView>
+      {isDiceRollerVisible && diceRollPayload && (
+        <DiceRoller
+          visible={isDiceRollerVisible}
+          title={diceRollPayload.title}
+          baseModifier={diceRollPayload.baseModifier}
+          onComplete={handleDiceRollComplete}
+        />
+      )}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-  },
-  container: {
+  // scrollContainer: { // REMOVED as unused
+  //   flexGrow: 1,
+  // },
+  container: { // This style might be deprecated by outerContainer or need to be reviewed
     flex: 1,
     padding: spacing.md,
-    backgroundColor: colors.backgroundBase,
+    backgroundColor: colors.obsidianBlack,
+  },
+  outerContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: colors.obsidianBlack,
+    // No padding here, padding will be in content part
+  },
+  imageContainer: {
+    width: '35%', // Fixed width for image column
+    height: '100%', // Full height
+    backgroundColor: colors.steelGrey, // BG for the container itself
+    justifyContent: 'center', // Center image if it's smaller, or for placeholder
+    alignItems: 'center',
+  },
+  questImage: {
+    width: '100%',
+    height: '100%', // Image takes full height of its container
+    resizeMode: 'cover',
+    // No borderRadius here if we want edge-to-edge on its column
+  },
+  scrollableContentContainer: {
+    flex: 1, // Takes remaining width
+  },
+  scrollableContentInnerContainer: {
+    padding: spacing.md, // Add padding here now
+    flexGrow: 1, // Ensure it can grow if content is short
+  },
+  contentContainer: { // This is now replaced by scrollableContentContainer and scrollableContentInnerContainer
+    flex: 2, 
+    flexDirection: 'column',
   },
   loadingText: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.ivoryWhite,
     textAlign: 'center',
-    marginTop: spacing.xl,
+    marginTop: spacing.lg,
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: colors.accentGold,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
-  description: {
-    fontSize: 16,
+  nodeTitle: {
+    fontSize: 20,
+    fontWeight: '600',
     color: colors.ivoryWhite,
+    textAlign: 'center',
     marginBottom: spacing.md,
-    textAlign: 'justify',
   },
   separator: {
     height: 1,
     backgroundColor: colors.steelGrey,
     marginVertical: spacing.md,
   },
-  stepContainer: {
+  description: {
+    fontSize: 16,
+    color: colors.fadedBeige,
     marginBottom: spacing.lg,
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.steelGrey,
+    lineHeight: 22,
   },
-  stepTitle: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: colors.accentGold,
-    marginBottom: spacing.sm,
-  },
-  stepInstruction: {
-    fontSize: 15,
-    color: colors.ivoryWhite,
-    marginBottom: spacing.md,
-  },
-  hintText: {
-    fontSize: 13,
-    color: colors.steelGrey,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginBottom: spacing.sm,
+  optionsContainer: {
+    marginTop: spacing.md,
   },
   button: {
-    backgroundColor: colors.accentGold,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 6,
+    backgroundColor: colors.bloodRed,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderRadius: spacing.sm,
+    marginBottom: spacing.md,
     alignItems: 'center',
-    marginTop: spacing.md,
     borderWidth: 1,
-    borderColor: colors.obsidianBlack,
+    borderColor: colors.accentGold,
   },
   buttonText: {
-    color: colors.obsidianBlack,
+    color: colors.ivoryWhite,
     fontSize: 16,
     fontWeight: 'bold',
   },
-  resultText: {
-    fontSize: 16,
-    color: colors.ivoryWhite,
-    marginBottom: spacing.sm,
+  feedbackText: {
+    color: colors.fadedBeige,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: spacing.md,
     fontStyle: 'italic',
-  },
-  outcomeGood: {
-    fontSize: 16,
-    color: colors.lightGreen, // Or a success green
-    fontWeight: 'bold',
-    marginBottom: spacing.sm,
-  },
-  outcomeBad: {
-    fontSize: 16,
-    color: colors.bloodRed, // Or an error red
-    fontWeight: 'bold',
-    marginBottom: spacing.sm,
-  },
-  outcomeNeutral: {
-    fontSize: 16,
-    color: colors.ivoryWhite,
-    fontWeight: 'bold',
-    marginBottom: spacing.sm,
-  },
-  disabledButton: {
-    backgroundColor: colors.steelGrey,
-    opacity: 0.6,
-  },
+  }
 }); 

@@ -1,96 +1,93 @@
-import { Coor, Tile, TerrainType } from './mapGen'; // Use TerrainType
+import { Coor, Tile, TerrainType } from './mapGen'; // TerrainType might not be needed if we don't filter by it
+import { Quest } from '../utils/questTypes'; // Import Quest
+// import { calculateManhattanDistance } from '../utils'; // Keep it local for now if utils export is an issue
 
-/**
- * Calculates the distance between two coordinates.
- */
-function calculateDistance(c1: Coor, c2: Coor): number {
-  return Math.sqrt(Math.pow(c1.col - c2.col, 2) + Math.pow(c1.row - c2.row, 2));
+// Locally defined calculateManhattanDistance to resolve import issues for now
+function calculateManhattanDistance(c1: Coor, c2: Coor): number {
+  return Math.abs(c1.col - c2.col) + Math.abs(c1.row - c2.row);
+}
+
+// Helper function to check if two coordinates are the same
+function areCoordsEqual(c1: Coor, c2: Coor): boolean {
+  return c1.row === c2.row && c1.col === c2.col;
 }
 
 /**
- * Finds a random valid location for a quest based on origin, target terrain, and distance probability.
- * @param originCoords Coordinates where the quest was discovered.
- * @param targetTileType The required terrain type for the quest location.
+ * Finds a random valid location for a quest.
+ * @param originCoords Coordinates where the quest was discovered (player's current location).
+ * @param quest The quest object, containing maxDistance and other details.
  * @param allTiles Array containing all map tiles.
- * @param mapWidth Width of the map.
- * @param mapHeight Height of the map.
- * @returns A valid Coor for the quest, or null if no suitable location is found within reasonable attempts.
+ * @param existingQuestLocations Array of coordinates already occupied by other quests.
+ * @returns A valid Coor for the quest, or null if no suitable location is found.
  */
 export function generateQuestLocation(
   originCoords: Coor,
-  targetTileType: TerrainType | undefined, // Use TerrainType
+  quest: Quest,
   allTiles: Tile[],
-  mapWidth: number,
-  mapHeight: number
+  existingQuestLocations: Coor[]
 ): Coor | null {
-  if (!targetTileType) {
-    // If no target type, maybe default to 'plains' or handle error/different logic?
-    console.warn("Quest missing targetTileType, cannot assign location.");
-    return null; 
+
+  if (!quest.targetTileType) {
+    console.warn(`Quest ${quest.id} has no targetTileType defined. Cannot determine specific location.`);
+    return null; // Or handle as a generic placement if that's desired later
   }
-
-  const maxAttemptsPerRange = 50; // Prevent infinite loops
-  const distanceProbabilities = [
-    { range: [5, 10], probability: 0.70 },   // Close
-    { range: [11, 20], probability: 0.20 },  // Medium
-    { range: [21, 35], probability: 0.07 },  // Far
-    { range: [36, 60], probability: 0.03 }, // Very Far (adjust max as needed)
-  ];
-
-  // --- Determine Target Distance Range ---
-  const randomValue = Math.random();
-  let cumulativeProbability = 0;
-  let targetRange = distanceProbabilities[0].range; // Default to closest
-
-  for (const distInfo of distanceProbabilities) {
-    cumulativeProbability += distInfo.probability;
-    if (randomValue <= cumulativeProbability) {
-      targetRange = distInfo.range;
-      break;
-    }
-  }
-
-  // --- Find Tiles in Target Range and Type ---
-  const minDistance = targetRange[0];
-  const maxDistance = targetRange[1];
   
-  const validTilesInRange: Tile[] = [];
-  for (const tile of allTiles) {
-    if (tile.type === targetTileType) {
-      const distance = calculateDistance(originCoords, tile);
-      if (distance >= minDistance && distance <= maxDistance) {
-        validTilesInRange.push(tile);
-      }
+  // Define "appropriate" tiles: matches targetTileType, not origin, not already a quest location.
+  const appropriateAndAvailableTiles = allTiles.filter(tile => {
+    if (tile.type !== quest.targetTileType) return false; // Must match targetTileType
+
+    const tileCoor = { row: tile.row, col: tile.col };
+    if (areCoordsEqual(tileCoor, originCoords)) return false; // Cannot be the origin tile
+    if (existingQuestLocations.some(loc => areCoordsEqual(tileCoor, loc))) return false; // Cannot be an existing quest location
+    return true;
+  });
+
+  if (appropriateAndAvailableTiles.length === 0) {
+    console.warn(`No available tiles of type '${quest.targetTileType}' found for quest ${quest.id} (excluding origin and occupied).`);
+    return null;
+  }
+
+  const maxDist = quest.maxDistance;
+
+  if (typeof maxDist === 'number' && maxDist > 0) {
+    const suitableTilesWithinDistance = appropriateAndAvailableTiles.filter(tile => {
+      const distance = calculateManhattanDistance(originCoords, tile);
+      // distance > 0 is implicitly handled by not being originCoords
+      return distance <= maxDist;
+    });
+
+    if (suitableTilesWithinDistance.length > 0) {
+      const randomIndex = Math.floor(Math.random() * suitableTilesWithinDistance.length);
+      const chosenTile = suitableTilesWithinDistance[randomIndex];
+      console.log(`Quest ${quest.id}: Found ${suitableTilesWithinDistance.length} tiles within distance ${maxDist}. Placing at ${chosenTile.row},${chosenTile.col}.`);
+      return { row: chosenTile.row, col: chosenTile.col };
+    }
+    console.warn(`Quest ${quest.id}: No tile found within maxDistance ${maxDist}. Searching for closest overall.`);
+  }
+
+  // Fallback: Find the *closest* appropriate and available tile on the entire map.
+  let closestTiles: Tile[] = [];
+  let minDistanceFound = Infinity;
+
+  for (const tile of appropriateAndAvailableTiles) {
+    const distance = calculateManhattanDistance(originCoords, tile);
+    // distance > 0 is implicitly handled by not being originCoords & not in existingQuestLocations (if origin was part of it)
+    
+    if (distance < minDistanceFound) {
+      minDistanceFound = distance;
+      closestTiles = [tile];
+    } else if (distance === minDistanceFound) {
+      closestTiles.push(tile);
     }
   }
 
-  if (validTilesInRange.length > 0) {
-    // Select a random tile from the valid ones
-    const randomIndex = Math.floor(Math.random() * validTilesInRange.length);
-    const chosenTile = validTilesInRange[randomIndex];
-    return { row: chosenTile.row, col: chosenTile.col };
+  if (closestTiles.length > 0) {
+    const randomIndex = Math.floor(Math.random() * closestTiles.length);
+    const chosenClosestTile = closestTiles[randomIndex];
+    console.log(`Quest ${quest.id}: Fallback - Placing at closest tile ${chosenClosestTile.row},${chosenClosestTile.col} (distance: ${minDistanceFound}).`);
+    return { row: chosenClosestTile.row, col: chosenClosestTile.col };
   }
 
-  // --- Fallback: If no tile found in the chosen range, try ANY valid tile > 4 distance ---
-  console.warn(`No tile of type ${targetTileType} found in range ${minDistance}-${maxDistance}. Expanding search.`);
-  const fallbackTiles: Tile[] = [];
-   for (const tile of allTiles) {
-     if (tile.type === targetTileType) {
-       const distance = calculateDistance(originCoords, tile);
-       if (distance >= 5) { // Ensure it's not right next door
-         fallbackTiles.push(tile);
-       }
-     }
-   }
-
-   if (fallbackTiles.length > 0) {
-     const fallbackIndex = Math.floor(Math.random() * fallbackTiles.length);
-     const chosenFallback = fallbackTiles[fallbackIndex];
-      console.warn(`Assigning fallback location at ${chosenFallback.row},${chosenFallback.col}`);
-     return { row: chosenFallback.row, col: chosenFallback.col };
-   }
-
-  // If still no tile found (e.g., map has no tiles of targetTileType)
-  console.error(`Failed to find any valid location for quest requiring ${targetTileType}.`);
+  console.error(`Quest ${quest.id}: Critical - Failed to find ANY valid location for quest.`);
   return null;
 } 

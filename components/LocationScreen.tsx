@@ -77,7 +77,12 @@ export default function LocationScreen({ config, locationType }: Props) {
   const [showLookForQuestsButton, setShowLookForQuestsButton] = useState(true); // Control visibility of the search button
 
   // Calculate modifier for the dice roll
-  const gatherModifier = (playerTraits.persuade || 0) + (playerTraits.reputation || 0);
+  // User request: 4dF + Intelligence + Persuasion/Persuade + Reputation
+  // Assuming playerTraits.smr is Intelligence, playerTraits.persuade is Persuasion
+  const gatherModifier = 
+    (playerTraits.smr || 0) + // Intelligence (using smr as placeholder)
+    (playerTraits.persuade || 0) + 
+    (playerTraits.reputation || 0);
 
   // Prune expired quests for this location when component mounts or time changes
   useEffect(() => {
@@ -117,21 +122,31 @@ export default function LocationScreen({ config, locationType }: Props) {
   // --- Dice Roll Completion Handler ---
   const handleRollComplete = (totalFromDice: number) => {
     setIsRolling(false); 
-    setCurrentDiceRollResult(totalFromDice); 
+    setCurrentDiceRollResult(totalFromDice); // totalFromDice is 4dF + gatherModifier
     
-    const questsToExclude = new Set(
-      Object.values(playerQuests)
-        .filter(qInfo => qInfo.status === 'active' || qInfo.status === 'completed')
-        .map(qInfo => qInfo.id)
-    );
-    const newlyPossibleQuests = fetchQuestsFromLogic({
-      playerTraits,
-      activeQuestIds: Array.from(questsToExclude), 
-      completedQuestIds: [], 
-      diceRollResult: totalFromDice,
+    const activeIds: string[] = [];
+    const completedIds: string[] = [];
+    const failedIds: string[] = [];
+
+    Object.values(playerQuests).forEach(qInfo => {
+      if (qInfo.status === 'active') activeIds.push(qInfo.id);
+      else if (qInfo.status === 'completed') completedIds.push(qInfo.id);
+      else if (qInfo.status === 'failed') failedIds.push(qInfo.id);
     });
 
-    // --- MODIFIED: Dispatch the async thunk --- 
+    // The roll from DiceRoller (totalFromDice) already includes the baseModifier (gatherModifier).
+    // This is the final calculated roll which discoverQuests expects to be capped (1-10).
+    // discoverQuests also clamps it, but good practice for caller to be aware.
+    const finalCalculatedRoll = totalFromDice; 
+
+    const newlyPossibleQuests = fetchQuestsFromLogic({
+      activeQuestIds: activeIds,
+      completedQuestIds: completedIds,
+      failedQuestIds: failedIds,
+      calculatedRoll: finalCalculatedRoll, // Pass the final roll (already includes modifiers)
+    });
+
+    // Dispatch the async thunk 
     dispatch(
       updateDiscoveredQuestsAsync({
         locationId,
@@ -258,26 +273,21 @@ export default function LocationScreen({ config, locationType }: Props) {
                   const discoveredAt = questInfo.discoveredAtTick;
                   const acceptedAt = isAccepted ? questStatusInfo.acceptedAtTick : null;
                   
-                  // Deadline is duration AFTER acceptance tick (if applicable)
-                  // --- MODIFIED: Use quest.duration for DEADLINE calculation AFTER acceptance ---
+                  // Restore duration/expiry related logic
                   const deadlineTick = (acceptedAt !== undefined && acceptedAt !== null && quest.duration) 
                                      ? acceptedAt + quest.duration 
                                      : null;
-                  // Expiry is duration AFTER discovery tick
-                  // --- Use quest.duration for EXPIRY calculation AFTER discovery ---
                   const expiryTick = quest.duration ? discoveredAt + quest.duration : null;
-
                   const ticksRemainingForDeadline = deadlineTick ? deadlineTick - ticks : null;
                   const ticksRemainingForExpiry = expiryTick ? expiryTick - ticks : null;
-
-                  // --- MODIFIED: Can accept only if not expired ---
                   const isExpired = ticksRemainingForExpiry !== null && ticksRemainingForExpiry <= 0;
+
+                  // Restore original acceptance logic
                   const canAccept = !isAccepted && !isCompleted && !isFailed && !isExpired;
-                  const acceptButtonText = isExpired ? 'Expired' : 'Accept';
+                  const acceptButtonText = isExpired ? 'Expired' : (isAccepted ? 'Accepted' : 'Accept'); // Adjusted for clarity
 
                   return (
                     <View key={quest.id} style={[styles.questItem, isAccepted && styles.questItemAccepted, isFailed && styles.questItemFailed, isExpired && !isAccepted && styles.questItemExpired]}>
-                      {/* --- MODIFIED: Ensure display values --- */}
                       <Text style={styles.questTitle}>
                         {quest.title ?? 'Unknown Quest'} (Rarity: {quest.rarity ?? 'N/A'})
                       </Text>
@@ -285,14 +295,12 @@ export default function LocationScreen({ config, locationType }: Props) {
                         {quest.description ?? ''}
                       </Text>
                       
-                      {/* Duration/Deadline/Expiry Info */} 
-                      {/* --- MODIFIED: Display based on status and remaining ticks --- */}
                       {quest.duration && (
                         <Text style={styles.questDurationText}>
                           {isAccepted && deadlineTick !== null && ticksRemainingForDeadline !== null ? 
                              (ticksRemainingForDeadline > 0 ? `Deadline in: ${ticksRemainingForDeadline} ticks (at Tick ${deadlineTick})` : 'Deadline Passed') :
                            isCompleted ? 
-                             `Completed` : 
+                             `Completed` :
                            isFailed ?
                               `Failed` :
                            isExpired ?
@@ -303,8 +311,6 @@ export default function LocationScreen({ config, locationType }: Props) {
                         </Text>
                       )}
                       
-                      {/* Status Label or Accept Button */} 
-                      {/* --- No change needed here, logic handles statuses including 'Expired' via canAccept --- */}
                       {isAccepted ? (
                         <Text style={styles.questAcceptedLabel}>In Progress</Text>
                       ) : isCompleted ? (
@@ -312,16 +318,16 @@ export default function LocationScreen({ config, locationType }: Props) {
                       ) : isFailed ? (
                          <Text style={styles.questStatusLabel}>Failed</Text>
                       ) : ( // Includes expired case where canAccept is false
-                        <TouchableOpacity 
-                          style={[styles.acceptButton, !canAccept && styles.acceptButtonDisabled ]}
-                          onPress={() => handleAcceptQuest(questInfo)} // Pass full questInfo
-                          disabled={!canAccept} 
-                        >
-                          <Text style={styles.acceptButtonText}>
-                            {acceptButtonText} 
-                          </Text>
-                        </TouchableOpacity>
-                      )}
+                         <TouchableOpacity 
+                           style={[styles.acceptButton, !canAccept && styles.acceptButtonDisabled ]}
+                           onPress={() => handleAcceptQuest(questInfo)}
+                           disabled={!canAccept} 
+                         >
+                           <Text style={styles.acceptButtonText}>
+                             {acceptButtonText} 
+                           </Text>
+                         </TouchableOpacity>
+                       )}
                     </View>
                   );
                 })
@@ -456,16 +462,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   questItemAccepted: {
-    backgroundColor: colors.ashBlue, // Example: different background for accepted quests
-    borderColor: colors.accentGold, // Example: different border
+    backgroundColor: colors.forestGreen,
   },
-  questItemFailed: { // Style for failed quests
-    backgroundColor: colors.bloodRed, 
-    opacity: 0.7,
+  questItemFailed: {
+    backgroundColor: colors.crimsonRed,
   },
   questItemExpired: {
     backgroundColor: colors.steelGrey,
-    opacity: 0.6,
   },
   questTitle: {
     color: colors.ivoryWhite,
@@ -479,20 +482,22 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   questDurationText: {
-    color: colors.steelGrey,
-    fontSize: 12,
+    color: colors.ivoryWhite,
+    fontSize: 14,
+    fontWeight: 'bold',
     fontStyle: 'italic',
-    marginBottom: spacing.xs,
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
   },
-  questAcceptedLabel: { // Label for 'In Progress'
-    color: colors.accentGold,
+  questAcceptedLabel: {
+    color: colors.ivoryWhite,
     fontSize: 14,
     fontWeight: 'bold',
     alignSelf: 'flex-start',
     marginTop: spacing.xs,
   },
-  questStatusLabel: { // Generic label for Completed/Failed
-    color: colors.steelGrey,
+  questStatusLabel: {
+    color: colors.ivoryWhite,
     fontSize: 14,
     fontWeight: 'bold',
     fontStyle: 'italic',
@@ -506,9 +511,8 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     alignSelf: 'flex-start', // Align button left
   },
-  acceptButtonDisabled: { // Style for disabled accept button
+  acceptButtonDisabled: {
     backgroundColor: colors.steelGrey,
-    opacity: 0.6,
   },
   acceptButtonText: {
     color: colors.obsidianBlack,

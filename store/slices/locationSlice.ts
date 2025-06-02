@@ -57,10 +57,21 @@ export const updateDiscoveredQuestsAsync = createAsyncThunk(
         throw new Error('Invalid locationId format');
     }
 
-    // Access map data from gameSlice (adjust state path if necessary)
     const allTiles = state.game.tiles;
-    const mapWidth = state.game.cols;
-    const mapHeight = state.game.rows;
+    // const mapWidth = state.game.cols; // Not needed by new generateQuestLocation
+    // const mapHeight = state.game.rows; // Not needed by new generateQuestLocation
+
+    // Collect all existing quest locations from the entire locations state
+    const existingQuestLocations: Coor[] = [];
+    Object.values(state.locations).forEach(locationState => {
+      if (locationState && locationState.quests) {
+        Object.values(locationState.quests).forEach(qInfo => {
+          if (qInfo.assignedLocation) {
+            existingQuestLocations.push(qInfo.assignedLocation);
+          }
+        });
+      }
+    });
 
     // Get existing location state to check current quests and last roll
     const existingLocationState = state.locations[locationId]; 
@@ -74,10 +85,9 @@ export const updateDiscoveredQuestsAsync = createAsyncThunk(
             if (!existingQuests[quest.id]) { // Only process if truly new to this location
                 const assignedLocation = generateQuestLocation(
                     originCoords,
-                    quest.targetTileType,
+                    quest, // Pass the whole quest object
                     allTiles,
-                    mapWidth,
-                    mapHeight
+                    existingQuestLocations // Pass all known quest locations
                 );
 
                 if (assignedLocation) {
@@ -117,10 +127,12 @@ const locationSlice = createSlice({
 
       Object.keys(location.quests).forEach((questId) => {
         const questInfo = location.quests[questId];
+        // Restore pruning logic using quest.duration
         if (questInfo.quest.duration && currentTick > questInfo.discoveredAtTick + questInfo.quest.duration) {
           delete location.quests[questId];
         }
       });
+      // console.warn('Quest pruning logic in locationSlice.ts needs update due to Quest.duration removal.'); // Remove warning
     },
      // Could add a reducer to remove a specific quest if needed, e.g., upon acceptance?
      // removeDiscoveredQuest(state, action: PayloadAction<{ locationId: string; questId: string }>) { ... }
