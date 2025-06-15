@@ -16,6 +16,7 @@ import playerReducer from './slices/playerSlice';
 import gameReducer from './slices/gameSlice';
 import locationReducer from './slices/locationSlice';
 import merchantReducer from './slices/merchantSlice';
+import settingsReducer from './slices/settingsSlice';
 
 const rootReducer = combineReducers({
   ui: uiReducer,
@@ -23,13 +24,14 @@ const rootReducer = combineReducers({
   game: gameReducer,
   locations: locationReducer,
   merchant: merchantReducer,
+  settings: settingsReducer,
 });
 
 const persistConfig = {
   key: 'root',
   version: 1,
   storage: AsyncStorage,
-  whitelist: ['player', 'game'],  // <-- now persisting both player AND game
+  whitelist: ['player', 'game', 'settings'],  // <-- now persisting player, game AND settings
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);
@@ -38,7 +40,10 @@ export const store = configureStore({
   reducer: persistedReducer,
   middleware: getDefaultMiddleware =>
     getDefaultMiddleware({
+      // Optimize performance by increasing warning thresholds
+      immutableCheck: { warnAfter: 128 },
       serializableCheck: {
+        warnAfter: 128,
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
       },
     }),

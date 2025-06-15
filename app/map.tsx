@@ -212,12 +212,23 @@ export default function MapScreen() {
         <Text style={styles.timeText}>Time: {ticks}</Text>
         <View style={styles.infoActions}>
           {encounter ? (
-            <Pressable
-              style={styles.actionBtn}
-              onPress={() => setEncounter(false)}
-            >
-              <Text style={styles.actionTxt}>Continue</Text>
-            </Pressable>
+            <View style={styles.infoActionsRow}>
+              <Pressable
+                style={styles.actionBtn}
+                onPress={() => setEncounter(false)}
+              >
+                <Text style={styles.actionTxt}>Continue</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.actionBtn, styles.fightBtn]}
+                onPress={() => {
+                  setEncounter(false);
+                  router.push('/battle');
+                }}
+              >
+                <Text style={[styles.actionTxt, styles.fightBtnTxt]}>FIGHT</Text>
+              </Pressable>
+            </View>
           ) : selected ? (
             <View style={styles.infoRow}>
               <Text style={styles.infoTxt}>
@@ -443,6 +454,14 @@ const styles = StyleSheet.create({
   },
   questBtnTxt: {
     color: colors.ivoryWhite,
+  },
+  fightBtn: {
+    backgroundColor: colors.bloodRed,
+    borderColor: colors.obsidianBlack,
+  },
+  fightBtnTxt: {
+    color: colors.ivoryWhite,
+    fontWeight: 'bold',
   },
   modalCenteredView: {
     flex: 1,

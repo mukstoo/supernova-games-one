@@ -6,6 +6,7 @@ import React, {
   useMemo,
   forwardRef,
   useImperativeHandle,
+  useCallback,
 } from 'react';
 import {
   View,
@@ -22,6 +23,7 @@ import { Tile, TerrainType, Coor } from '../utils/mapGen';
 import { colors } from '../theme/colors';
 
 const TILE = 40;
+const BUFFER_TILES = 2; // Extra tiles to render outside viewport to reduce pop-in
 
 // Helper to clamp values within a range
 function clamp(v: number, min: number, max: number): number {
@@ -49,12 +51,12 @@ function makePath(a: Coor, b: Coor): Coor[] {
 // Helper function to get color based on terrain type
 function getTileColor(type: TerrainType): string {
   switch (type) {
-    case 'plains':      return colors.lightGreen;
-    case 'forest':      return colors.forestGreen;
-    case 'mountains':   return colors.ivoryWhite;
-    case 'desert':      return colors.desertTan;
-    case 'settlement':  return colors.sandyBrown;
-    default:            return colors.fadedBeige;
+    case 'plains': return colors.lightGreen;
+    case 'forest': return colors.forestGreen;
+    case 'mountains': return colors.ivoryWhite;
+    case 'desert': return colors.desertTan;
+    case 'settlement': return colors.sandyBrown;
+    default: return colors.fadedBeige;
   }
 }
 
@@ -83,7 +85,26 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
   const [path, setPath] = useState<Coor[]>([]);
 
   const viewBoxRef = useRef(viewBox);
+  const animationFrameRef = useRef<number | null>(null);
+  const pendingViewBoxRef = useRef<{ x: number; y: number } | null>(null);
+
   useEffect(() => { viewBoxRef.current = viewBox; }, [viewBox]);
+
+  // Optimized viewBox update with animation frame throttling
+  const updateViewBox = useCallback((newViewBox: { x: number; y: number }) => {
+    viewBoxRef.current = newViewBox;
+    pendingViewBoxRef.current = newViewBox;
+
+    if (animationFrameRef.current === null) {
+      animationFrameRef.current = requestAnimationFrame(() => {
+        if (pendingViewBoxRef.current) {
+          setViewBox(pendingViewBoxRef.current);
+          pendingViewBoxRef.current = null;
+        }
+        animationFrameRef.current = null;
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!selected || (selected.row === pcPos.row && selected.col === pcPos.col)) {
@@ -98,42 +119,39 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
   const mapH = rows * TILE;
 
   // Function to center the viewbox on specific coordinates
-  const centerOnCoordsInternal = (coords: Coor) => {
+  const centerOnCoordsInternal = useCallback((coords: Coor) => {
     if (size.width <= 0 || size.height <= 0) return;
     const maxX = Math.max(0, mapW - size.width);
     const maxY = Math.max(0, mapH - size.height);
     const cx = clamp(coords.col * TILE - size.width / 2 + TILE / 2, 0, maxX);
     const cy = clamp(coords.row * TILE - size.height / 2 + TILE / 2, 0, maxY);
-    viewBoxRef.current = { x: cx, y: cy };
-    setViewBox({ x: cx, y: cy });
-  };
+    updateViewBox({ x: cx, y: cy });
+  }, [size.width, size.height, mapW, mapH, updateViewBox]);
 
   // Expose centerOnCoords via ref
   useImperativeHandle(ref, () => ({
     centerOnCoords: centerOnCoordsInternal,
-  }));
+  }), [centerOnCoordsInternal]);
 
   // Function to center on the Player Character
-  const centerPC = () => {
+  const centerPC = useCallback(() => {
     centerOnCoordsInternal(pcPos);
-  };
+  }, [centerOnCoordsInternal, pcPos]);
 
   // Center on PC once layout size is known and when PC position changes
   useEffect(() => {
     if (size.width > 0 && size.height > 0) {
       centerPC();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pcPos.row, pcPos.col, size.width, size.height]); // centerPC dependency not needed
+  }, [pcPos.row, pcPos.col, size.width, size.height, centerPC]);
 
-  const onLayout = (e: LayoutChangeEvent) => {
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     // Only update size if it actually changed to prevent potential loops
     if (width !== size.width || height !== size.height) {
       setSize({ width, height });
-      // Initial centering happens in useEffect now
     }
-  };
+  }, [size.width, size.height]);
 
   const panResponder = useMemo(() => {
     let startX = 0, startY = 0;
@@ -155,8 +173,10 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
         const maxY = Math.max(0, mapH - size.height);
         const nx = clamp(startX - gs.dx, 0, maxX);
         const ny = clamp(startY - gs.dy, 0, maxY);
-        viewBoxRef.current = { x: nx, y: ny };
-        setViewBox({ x: nx, y: ny });
+        
+        // Only update the ref during pan gesture for smooth movement
+        // The throttled update will handle state updates
+        updateViewBox({ x: nx, y: ny });
       },
       onPanResponderRelease: (evt, gs) => {
         // If it was a tap (minimal movement)
@@ -170,7 +190,37 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
         }
       },
     });
-  }, [size.width, size.height, mapW, mapH, cols, rows, onSelect]);
+  }, [size.width, size.height, mapW, mapH, cols, rows, onSelect, updateViewBox]);
+
+  // Memoize tiles lookup map for performance
+  const tilesMap = useMemo(() => {
+    const tileMap = new Map<string, Tile>();
+    tiles.forEach(tile => {
+      tileMap.set(`${tile.row}-${tile.col}`, tile);
+    });
+    return tileMap;
+  }, [tiles]);
+
+  // Viewport culling: only render tiles that are visible (with buffer)
+  const visibleTiles = useMemo(() => {
+    if (size.width <= 0 || size.height <= 0) return [];
+
+    const startCol = Math.max(0, Math.floor(viewBox.x / TILE) - BUFFER_TILES);
+    const endCol = Math.min(cols - 1, Math.floor((viewBox.x + size.width) / TILE) + BUFFER_TILES);
+    const startRow = Math.max(0, Math.floor(viewBox.y / TILE) - BUFFER_TILES);
+    const endRow = Math.min(rows - 1, Math.floor((viewBox.y + size.height) / TILE) + BUFFER_TILES);
+
+    const visible: Tile[] = [];
+    for (let row = startRow; row <= endRow; row++) {
+      for (let col = startCol; col <= endCol; col++) {
+        const tile = tilesMap.get(`${row}-${col}`);
+        if (tile) {
+          visible.push(tile);
+        }
+      }
+    }
+    return visible;
+  }, [tilesMap, viewBox.x, viewBox.y, size.width, size.height, rows, cols]);
 
   const needCenter = useMemo(() => {
       if (!size.width || !size.height) return false;
@@ -182,13 +232,22 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
           pcScreenY < 0 ||
           pcScreenY + TILE > size.height
       );
-  }, [pcPos, viewBox, size, TILE]);
+  }, [pcPos, viewBox, size]);
 
   const questLocationSet = useMemo(() => {
     const set = new Set<string>();
     activeQuestLocations.forEach(loc => set.add(`${loc.row}-${loc.col}`));
     return set;
   }, [activeQuestLocations]);
+
+  // Cleanup animation frame on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
 
   return (
     <View style={styles.container} onLayout={onLayout} {...panResponder.panHandlers}>
@@ -198,13 +257,12 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
           height={size.height}
           viewBox={`${viewBox.x} ${viewBox.y} ${size.width} ${size.height}`}
         >
-          {tiles.map(t => {
+          {visibleTiles.map(t => {
             const isSelected = selected?.row === t.row && selected?.col === t.col;
             const isPcLocation = pcPos.row === t.row && pcPos.col === t.col;
             const isQuestLocation = questLocationSet.has(`${t.row}-${t.col}`);
 
             return (
-              // Use React.Fragment to avoid unnecessary nesting if key needed on Rect
               <React.Fragment key={`${t.row}-${t.col}`}>
                 <Rect
                   x={t.col * TILE}
@@ -212,9 +270,8 @@ const MapView = forwardRef<MapViewRef, MapViewProps>((
                   width={TILE}
                   height={TILE}
                   fill={getTileColor(t.type)}
-                  stroke={isSelected ? colors.accentGold : colors.steelGrey} // Darker stroke for non-selected
+                  stroke={isSelected ? colors.accentGold : colors.steelGrey}
                   strokeWidth={isSelected ? 2 : 0.5}
-                  // onPress handled by PanResponder release for taps
                 />
                 {isPcLocation && (
                   <SvgText

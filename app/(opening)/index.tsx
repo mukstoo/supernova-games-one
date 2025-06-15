@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, StyleSheet, Dimensions, Animated, Easing } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../store';
 import { preloadAssets } from '../../utils/preload';
 import { colors } from '../../theme/colors';
 import logo1 from '../../assets/images/logo1.png';
@@ -13,10 +15,11 @@ export default function Opening() {
   const router = useRouter();
   const [step, setStep] = useState<'loading' | 'logo1' | 'logo2'>('loading');
   const opacity = new Animated.Value(0);
+  const volume = useSelector((state: RootState) => state.settings.volume);
 
   useEffect(() => {
-    preloadAssets().then(() => setStep('logo1'));
-  }, []);
+    preloadAssets(volume).then(() => setStep('logo1'));
+  }, [volume]);
 
   useEffect(() => {
     if (step === 'logo1' || step === 'logo2') {

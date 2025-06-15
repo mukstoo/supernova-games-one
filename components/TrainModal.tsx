@@ -30,17 +30,15 @@ interface TrainModalProps {
 const MIN_TRAIN_TICKS = 1;
 const DEFAULT_MAX_TRAIN_TICKS = 10; // Max ticks to train in one go (can be adjusted)
 
-// Helper to get a display name for traits
-const traitDisplayNames: Record<keyof Traits, string> = {
+const TRAIT_LABELS: Record<keyof Traits, string> = {
   str: 'Strength',
-  spd: 'Speed',
-  stm: 'Stamina',
-  smr: 'Smarts',
+  agility: 'Agility',
+  endurance: 'Endurance',
+  intelligence: 'Intelligence',
   reputation: 'Reputation',
-  persuade: 'Persuasion',
-  travel: 'Travel',
+  persuade: 'Persuade',
   medicine: 'Medicine',
-  craft: 'Crafting',
+  craft: 'Craft',
   perception: 'Perception',
   stealth: 'Stealth',
   athletics: 'Athletics',
@@ -111,7 +109,7 @@ export function TrainModal({ visible, onClose }: TrainModalProps) {
       return;
     }
 
-    const traitName = traitDisplayNames[selectedTraitKey] || selectedTraitKey;
+    const traitName = TRAIT_LABELS[selectedTraitKey] || selectedTraitKey;
     const oldLevel = playerTraits[selectedTraitKey];
 
     dispatch(applyTraining({ ticksApplied: numTicks }));
@@ -131,7 +129,7 @@ export function TrainModal({ visible, onClose }: TrainModalProps) {
     const currentLevel = playerTraits[traitKey];
     const progress = trainingProgressData[traitKey] || 0;
     const costForNextLevel = currentLevel + 1;
-    const displayName = traitDisplayNames[traitKey] || traitKey;
+    const displayName = TRAIT_LABELS[traitKey] || traitKey;
 
     return (
       <TouchableOpacity
@@ -162,7 +160,7 @@ export function TrainModal({ visible, onClose }: TrainModalProps) {
             {selectedTraitKey && (
               <View style={styles.selectedTraitInfoContainer}>
                 <Text style={styles.selectedTraitText}>
-                  Training: {traitDisplayNames[selectedTraitKey]} (Lvl: {playerTraits[selectedTraitKey]})
+                  Training: {TRAIT_LABELS[selectedTraitKey]} (Lvl: {playerTraits[selectedTraitKey]})
                 </Text>
                 <Text style={styles.selectedTraitProgressText}>
                   (Progress: {trainingProgressData[selectedTraitKey] || 0}/{

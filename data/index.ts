@@ -4,8 +4,10 @@
 // Quest data
 export * from './quests';
 
-// Future game data can be added here:
-// export * from './enemies';
-// export * from './items'; 
+// Item data
+export * from './items';
+
+// Enemy data
+export * from './enemies';
 // export * from './locations';
 // export * from './characters'; 

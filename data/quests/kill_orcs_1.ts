@@ -33,11 +33,11 @@ export const killOrcs1: Quest = {
         },
         {
           type: 'check',
-          description: 'Try to create a diversion to draw them away (Smarts DC 10)',
-          skill: 'smr',
+          description: 'Try to create a diversion to draw them away (Intelligence DC 10)',
+          skill: 'intelligence',
           dc: 10,
-          successOutcome: 'diversion_works',
-          failureOutcome: 'diversion_fails',
+          successOutcome: 'diversion_successful',
+          failureOutcome: 'diversion_failed',
         },
         {
           type: 'battle',
@@ -90,8 +90,8 @@ export const killOrcs1: Quest = {
         },
       ],
     },
-    'diversion_works': {
-      id: 'diversion_works',
+    'diversion_successful': {
+      id: 'diversion_successful',
       title: 'Diversion Successful',
       description: 'Your clever diversion pulls the sentries away from their posts, investigating the disturbance! The way into the camp is momentarily clear.',
       img: PLACEHOLDER_IMG,
@@ -104,8 +104,8 @@ export const killOrcs1: Quest = {
         },
       ],
     },
-    'diversion_fails': {
-      id: 'diversion_fails',
+    'diversion_failed': {
+      id: 'diversion_failed',
       title: 'Diversion Failed',
       description: 'The orcs briefly look towards your diversion but quickly dismiss it, their attention returning to their posts. One of them seems to be looking your way with suspicion.',
       img: PLACEHOLDER_IMG,
@@ -300,11 +300,11 @@ export const killOrcs1: Quest = {
       options: [
           {
               type: 'check',
-              description: 'Poison the food (Craft DC 12 with herbs, Smarts DC 15 without)',
-              skill: 'craft',
-              dc: 12, 
-              successOutcome: 'supplies_poisoned',
-              failureOutcome: 'sabotage_detected',
+              description: 'Poison the food (Craft DC 12 with herbs, Intelligence DC 15 without)',
+              skill: 'intelligence',
+              dc: 15,
+              successOutcome: 'food_poisoned',
+              failureOutcome: 'poisoning_failed',
           },
           {
               type: 'check',
@@ -316,14 +316,27 @@ export const killOrcs1: Quest = {
           }
       ]
     },
-    'supplies_poisoned': {
-      id: 'supplies_poisoned',
+    'food_poisoned': {
+      id: 'food_poisoned',
       title: 'Supplies Poisoned',
       description: 'You successfully contaminate their food stores. This will weaken them considerably.',
       img: PLACEHOLDER_IMG,
       rewards: {xp: 30, reputationChange: -1},
       nodeType: 'questComplete',
       options: []
+    },
+    'poisoning_failed': {
+      id: 'poisoning_failed',
+      title: 'Poisoning Failed',
+      description: 'Your attempt to poison the food stores failed. The orcs are still vulnerable.',
+      img: PLACEHOLDER_IMG,
+      options: [
+        {
+          type: 'narrative',
+          description: 'Re-evaluate your approach.',
+          outcome: 'start_approach',
+        },
+      ]
     },
     'weapons_destroyed': {
       id: 'weapons_destroyed',

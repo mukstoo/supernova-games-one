@@ -25,7 +25,7 @@ import {
 } from '../../utils/questTypes';
 import { Traits, completeQuest, failQuest, addGold, addXp, takeDamage } from '../../store/slices/playerSlice';
 import { advanceTime } from '../../store/slices/gameSlice';
-import DiceRoller from '../../components/DiceRoller';
+import DiceRoller, { TraitContribution } from '../../components/DiceRoller';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 
@@ -154,34 +154,55 @@ export default function QuestEntryScreen() {
     setIsDiceRollerVisible(true);
   };
 
-  const handleDiceRollComplete = (total: number, faces: string[]) => {
+  const handleDiceRollComplete = (total: number, diceResult: number, faces: string[]) => {
     setIsDiceRollerVisible(false);
     if (!diceRollPayload || !currentQuestData) return;
 
     const { option } = diceRollPayload;
     dispatch(advanceTime());
 
+    // The parent receives the results and determines what they mean
+    const skillValue = playerTraits[option.skill] || 0;
+    const success = total >= option.dc;
+    const margin = total - option.dc; // How much over/under the DC
+    
     let nextNodeId: string;
-    let feedback = `Rolled ${total} (Dice: ${faces.join(', ')}) vs DC ${option.dc} for ${option.skill}.`;
-
-    if (total >= option.dc) {
-      feedback += ' Success!';
+    let feedback = `Rolled ${total} vs DC ${option.dc} (${success ? 'Success' : 'Failure'})`;
+    
+    // Different outcomes based on dice results and skill check context
+    if (success) {
+      feedback += ' - Success!';
       nextNodeId = option.successOutcome;
+      
+      // Critical success on natural +3 or +4 dice result
+      if (diceResult >= 3) {
+        feedback += ' Critical success! (Natural +' + diceResult + ')';
+        // Could add bonus rewards or different outcomes here
+      }
+      
+      // Marginal success - just barely made it
+      if (margin <= 1) {
+        feedback += ' (Barely made it)';
+      }
     } else {
-      feedback += ' Failure!';
+      feedback += ' - Failure!';
       nextNodeId = option.failureOutcome;
+      
+      // Critical failure on natural -3 or -4 dice result  
+      if (diceResult <= -3) {
+        feedback += ' Critical failure! (Natural ' + diceResult + ')';
+        // Could add extra consequences here
+      }
+      
       if (option.failureConsequence) {
         feedback += ` ${option.failureConsequence.description || ''}`;
-        if (option.failureConsequence.damage && typeof dispatch === 'function' && typeof takeDamage === 'function') {
+        if (option.failureConsequence.damage) {
           dispatch(takeDamage(option.failureConsequence.damage));
           feedback += ` You take ${option.failureConsequence.damage} damage.`;
-          console.log(`Player takes ${option.failureConsequence.damage} damage via dispatch.`);
-        } else if (option.failureConsequence.damage) {
-            console.log(`Player would take ${option.failureConsequence.damage} damage if takeDamage action was available.`);
-             feedback += ` You take ${option.failureConsequence.damage} damage. (takeDamage action not dispatched).`;
         }
       }
     }
+    
     setActionFeedback(feedback);
     
     const targetNode = currentQuestData.nodes[nextNodeId];
@@ -338,7 +359,12 @@ export default function QuestEntryScreen() {
         <DiceRoller
           visible={isDiceRollerVisible}
           title={diceRollPayload.title}
-          baseModifier={diceRollPayload.baseModifier}
+          traitContributions={[
+            { 
+              name: diceRollPayload.option.skill.charAt(0).toUpperCase() + diceRollPayload.option.skill.slice(1), 
+              value: playerTraits[diceRollPayload.option.skill] || 0 
+            }
+          ]}
           onComplete={handleDiceRollComplete}
         />
       )}

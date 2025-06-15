@@ -1,7 +1,7 @@
 // utils/questLogic.ts
 import { Quest } from './questTypes';
 import { allQuests } from './quests';
-// Note: Player Traits (like INT, PER) and specific stat values (Reputation)
+// Note: Player Traits (Intelligence, Persuade, Reputation) 
 // are expected to be used by the *caller* of discoverQuests to calculate the initial diceRollResult.
 // import { Traits } from '../store/slices/playerSlice'; // Not directly used in this file after refactor
 
@@ -31,13 +31,13 @@ interface DiscoveryParameters {
   activeQuestIds: string[];
   completedQuestIds: string[];
   failedQuestIds: string[];
-  /** The final calculated dice roll result (e.g., 4dF + INT + PER + REP), expected to be 1-10 after capping by caller. */
+  /** The final calculated dice roll result (e.g., 4dF + INT + PERSUADE + REP), expected to be 1-10 after capping by caller. */
   calculatedRoll: number; 
 }
 
 /** 
  * Determines which quests are discovered based on a calculated roll result (1-10).
- * The roll should incorporate 4dF, player stats (Intelligence, Persuasion), and Reputation.
+ * The roll should incorporate 4dF + Intelligence + Persuade + Reputation.
  * Returns an array of 1 to 5 discovered quests.
  * The caller is responsible for the initial roll calculation and time advancement.
  */

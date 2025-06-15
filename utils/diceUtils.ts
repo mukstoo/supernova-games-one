@@ -24,8 +24,16 @@ export type PlayerStatKeys = {
 
 // TODO: Define actual Trait keys here if possible, or ensure they are passed correctly.
 export const STAT_KEYS: PlayerStatKeys = {
-  intelligence: 'smr', // Placeholder - using 'smr' for Smarts as an example for Intelligence
+  intelligence: 'intelligence', // Placeholder - using 'intelligence' for Intelligence
   persuasion: 'persuade', // Placeholder
   reputation: 'reputation', // Placeholder - assuming 'reputation' might be a direct stat or derived
   perception: 'per' // Placeholder for Perception, used in quests.ts linter errors
+};
+
+const attributeMapping: Record<string, keyof Traits> = {
+  strength: 'str',
+  agility: 'agility',
+  endurance: 'endurance', 
+  intelligence: 'intelligence',
+  // ... rest of mappings
 }; 

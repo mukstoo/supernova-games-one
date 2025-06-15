@@ -45,10 +45,10 @@ export const gatherHerbs1: Quest = {
         },
         {
           type: 'check',
-          description: 'Ask about the herbs\' properties (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Ask about the herbs\' properties (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
-          successOutcome: 'herb_knowledge_gained',
+          successOutcome: 'herb_properties_learned',
           failureOutcome: 'basic_herb_info',
         },
         {
@@ -126,11 +126,11 @@ export const gatherHerbs1: Quest = {
         },
         {
           type: 'check',
-          description: 'Ask about the snake and the ruins (Smarts DC 8).',
-          skill: 'smr',
+          description: 'Ask about the snake and the ruins (Intelligence DC 8).',
+          skill: 'intelligence',
           dc: 8,
-          successOutcome: 'dangerous_ruins_info',
-          failureOutcome: 'limited_ruins_info',
+          successOutcome: 'ruins_danger_revealed',
+          failureOutcome: 'vague_warnings',
         },
         {
           type: 'check',
@@ -161,11 +161,11 @@ export const gatherHerbs1: Quest = {
         },
         {
           type: 'check',
-          description: 'Examine the medicinal preparations (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Examine the medicinal preparations (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
-          successOutcome: 'poison_treatment_identified',
-          failureOutcome: 'general_medicine_noted',
+          successOutcome: 'preparation_knowledge',
+          failureOutcome: 'general_knowledge',
         },
         {
           type: 'narrative',
@@ -226,8 +226,8 @@ export const gatherHerbs1: Quest = {
         }
       ]
     },
-    'herb_knowledge_gained': {
-      id: 'herb_knowledge_gained',
+    'herb_properties_learned': {
+      id: 'herb_properties_learned',
       title: 'Herbal Expertise',
       description: 'Your knowledge impresses the wise woman. "Ah, you know herbs! Moonbell flowers bloom only at dawn and dusk, and silverleaf grows near water sources. But beware - there are dangerous mimics that look similar but are poisonous."',
       img: PLACEHOLDER_IMG,
@@ -245,11 +245,11 @@ export const gatherHerbs1: Quest = {
         },
         {
           type: 'check',
-          description: 'Ask about other rare herbs in the area (Smarts DC 12).',
-          skill: 'smr',
+          description: 'Ask about other rare herbs in the area (Intelligence DC 12).',
+          skill: 'intelligence',
           dc: 12,
           successOutcome: 'rare_herb_locations',
-          failureOutcome: 'basic_herb_locations',
+          failureOutcome: 'common_herb_info',
         }
       ]
     },
@@ -288,8 +288,8 @@ export const gatherHerbs1: Quest = {
         }
       ]
     },
-    'dangerous_ruins_info': {
-      id: 'dangerous_ruins_info',
+    'ruins_danger_revealed': {
+      id: 'ruins_danger_revealed',
       title: 'Knowledge of Danger',
       description: 'The wise woman nods grimly. "The old ruins are cursed, they say. Strange creatures nest there, and the vegetation grows twisted and poisonous. The snake that bit her was no ordinary serpent - it had an unnatural sheen to its scales."',
       img: PLACEHOLDER_IMG,
@@ -307,11 +307,11 @@ export const gatherHerbs1: Quest = {
         },
         {
           type: 'check',
-          description: 'Ask about protective measures against cursed creatures (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Ask about protective measures against cursed creatures (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
-          successOutcome: 'protection_knowledge',
-          failureOutcome: 'limited_protection_info',
+          successOutcome: 'protection_advice',
+          failureOutcome: 'general_advice',
         }
       ]
     },
@@ -324,11 +324,11 @@ export const gatherHerbs1: Quest = {
       options: [
         {
           type: 'check',
-          description: 'Estimate how much time you have (Smarts DC 12).',
-          skill: 'smr',
+          description: 'Estimate how much time you have (Intelligence DC 12).',
+          skill: 'intelligence',
           dc: 12,
-          successOutcome: 'precise_timeline',
-          failureOutcome: 'rough_timeline',
+          successOutcome: 'time_estimation_accurate',
+          failureOutcome: 'time_estimation_vague',
         },
         {
           type: 'narrative',

@@ -13,10 +13,13 @@ import {
 import { useDispatch } from 'react-redux';
 import { useRouter } from 'expo-router';
 import { resetGameState } from '../store/slices/gameSlice';
-import { initializeCharacter, resetPlayer } from '../store/slices/playerSlice';
+import { initializeCharacter } from '../store/slices/playerSlice';
 import type { Traits } from '../store/slices/playerSlice';
 import { resetUI } from '../store/slices/uiSlice';
 import { resetLocations } from '../store/slices/locationSlice';
+import { resetMerchant } from '../store/slices/merchantSlice';
+import { allWeapons, type WeaponType } from '../data/weapons';
+import { allArmor } from '../data/armor';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 
@@ -26,7 +29,6 @@ const COLUMN_WIDTH = CONTAINER_WIDTH * 0.4;
 
 type StatKey = 'strength' | 'agility' | 'intelligence' | 'endurance';
 type SkillKey = 'athletics' | 'persuade' | 'survival' | 'stealth' | 'medicine' | 'craft' | 'perception';
-type StartingWeapon = 'sword' | 'axe' | 'spear';
 
 const STAT_LABELS: Record<StatKey, string> = {
   strength: 'Strength',
@@ -45,7 +47,8 @@ const SKILL_LABELS: Record<SkillKey, string> = {
   perception: 'Perception',
 };
 
-const STARTING_WEAPONS: StartingWeapon[] = ['sword', 'axe', 'spear'];
+// Available weapon types for character creation
+const STARTING_WEAPON_TYPES: WeaponType[] = ['sword', 'axe', 'spear'];
 
 const BASE_SKILL_VALUE = 0;
 const MAX_SKILL_VALUE = 5;
@@ -74,10 +77,48 @@ export default function CharacterCreation() {
     perception: BASE_SKILL_VALUE,
   });
 
-  const [selectedWeapon, setSelectedWeapon] = useState<StartingWeapon | null>('sword');
+  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType | null>('sword');
 
   const dispatch = useDispatch();
   const router = useRouter();
+
+  // Get poor quality weapon and armor based on character stats
+  const currentWeapon = useMemo(() => {
+    if (!selectedWeapon) return null;
+    return allWeapons.find(weapon => 
+      weapon.type === selectedWeapon && 
+      weapon.strengthRequirement === stats.strength && 
+      weapon.quality === 'poor'
+    ) || allWeapons.find(weapon => 
+      weapon.type === selectedWeapon && 
+      weapon.strengthRequirement === stats.strength
+    ) || null;
+  }, [selectedWeapon, stats.strength]);
+
+  const currentArmor = useMemo(() => {
+    return allArmor.find(armor => 
+      armor.strengthRequirement === stats.strength && 
+      armor.quality === 'poor'
+    ) || allArmor.find(armor => 
+      armor.strengthRequirement === stats.strength
+    ) || null;
+  }, [stats.strength]);
+
+  // Calculate secondary characteristics
+  const secondaryStats = useMemo(() => {
+    const weapon = currentWeapon;
+    const armor = currentArmor;
+    
+    return {
+      initiative: stats.agility + stats.intelligence,
+      attack: stats.agility + stats.intelligence + (weapon?.attack || 0),
+      defense: stats.agility + stats.intelligence + (weapon?.defense || 0),
+      damage: stats.strength + (weapon?.damage || 0),
+      damageReduction: armor?.damageReduction || 0,
+      hitPoints: stats.endurance * 10,
+      woundResistance: stats.endurance,
+    };
+  }, [stats, currentWeapon, currentArmor]);
 
   const pointsGainedFromLoweringStat = Object.values(stats).filter(v => v < BASE_STAT_VALUE).length;
   const pointsSpentOnIncreasingStat = Object.values(stats).reduce((sum, v) => sum + Math.max(0, v - BASE_STAT_VALUE), 0);
@@ -143,15 +184,15 @@ export default function CharacterCreation() {
     }
 
     dispatch(resetGameState());
-    dispatch(resetPlayer());
     dispatch(resetUI());
     dispatch(resetLocations());
+    dispatch(resetMerchant());
 
     const finalTraits: Partial<Traits> = {
       str: stats.strength,
-      spd: stats.agility,
-      stm: stats.endurance,
-      smr: stats.intelligence,
+      agility: stats.agility,
+      endurance: stats.endurance,
+      intelligence: stats.intelligence,
       athletics: skills.athletics,
       persuade: skills.persuade,
       survival: skills.survival,
@@ -228,6 +269,46 @@ export default function CharacterCreation() {
                 </View>
               </View>
             ))}
+
+            {/* Secondary Characteristics */}
+            <Text style={[styles.columnTitle, { marginTop: spacing.lg }]}>Secondary Characteristics</Text>
+            <View style={styles.secondaryStatsContainer}>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>Initiative:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.initiative}</Text>
+                <Text style={styles.secondaryStatFormula}>(Agi + Int)</Text>
+              </View>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>Attack:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.attack}</Text>
+                <Text style={styles.secondaryStatFormula}>(Agi + Int + Weapon)</Text>
+              </View>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>Defense:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.defense}</Text>
+                <Text style={styles.secondaryStatFormula}>(Agi + Int + Weapon)</Text>
+              </View>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>Damage:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.damage}</Text>
+                <Text style={styles.secondaryStatFormula}>(Str + Weapon)</Text>
+              </View>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>DR:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.damageReduction}</Text>
+                <Text style={styles.secondaryStatFormula}>(Armor)</Text>
+              </View>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>HP:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.hitPoints}</Text>
+                <Text style={styles.secondaryStatFormula}>(End × 10)</Text>
+              </View>
+              <View style={styles.secondaryStatRow}>
+                <Text style={styles.secondaryStatLabel}>Wound Resist:</Text>
+                <Text style={styles.secondaryStatValue}>{secondaryStats.woundResistance}</Text>
+                <Text style={styles.secondaryStatFormula}>(End)</Text>
+              </View>
+            </View>
           </View>
 
           <View style={styles.column}>
@@ -267,23 +348,44 @@ export default function CharacterCreation() {
 
             <Text style={[styles.columnTitle, { marginTop: spacing.lg }]}>Starting Weapon</Text>
             <View style={styles.weaponSelectionContainer}>
-              {STARTING_WEAPONS.map((weapon) => (
+              {STARTING_WEAPON_TYPES.map((weaponType) => (
                 <TouchableOpacity
-                  key={weapon}
+                  key={weaponType}
                   style={[
                     styles.weaponButton,
-                    selectedWeapon === weapon && styles.weaponButtonSelected,
+                    selectedWeapon === weaponType && styles.weaponButtonSelected,
                   ]}
-                  onPress={() => setSelectedWeapon(weapon)}
+                  onPress={() => setSelectedWeapon(weaponType)}
                 >
                   <Text style={[
                     styles.weaponButtonText,
-                    selectedWeapon === weapon && styles.weaponButtonTextSelected
+                    selectedWeapon === weaponType && styles.weaponButtonTextSelected
                   ]}>
-                    {weapon.charAt(0).toUpperCase() + weapon.slice(1)}
+                    {weaponType.charAt(0).toUpperCase() + weaponType.slice(1)}
                   </Text>
                 </TouchableOpacity>
               ))}
+            </View>
+
+            {/* Current Equipment Display */}
+            <View style={styles.equipmentContainer}>
+              <Text style={styles.equipmentTitle}>Current Equipment</Text>
+              {currentWeapon && (
+                <View style={styles.equipmentItem}>
+                  <Text style={styles.equipmentName}>Weapon: {currentWeapon.name}</Text>
+                  <Text style={styles.equipmentStats}>
+                    Att: {currentWeapon.attack}, Def: {currentWeapon.defense}, Dam: {currentWeapon.damage}
+                  </Text>
+                </View>
+              )}
+              {currentArmor && (
+                <View style={styles.equipmentItem}>
+                  <Text style={styles.equipmentName}>Armor: {currentArmor.name}</Text>
+                  <Text style={styles.equipmentStats}>
+                    DR: {currentArmor.damageReduction}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -432,6 +534,39 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.ivoryWhite,
   },
+  secondaryStatsContainer: {
+    backgroundColor: colors.backgroundBase,
+    borderRadius: 8,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.steelGrey,
+  },
+  secondaryStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  secondaryStatLabel: {
+    fontSize: 14,
+    color: colors.ivoryWhite,
+    fontWeight: '500',
+    flex: 1,
+  },
+  secondaryStatValue: {
+    fontSize: 16,
+    color: colors.accentGold,
+    fontWeight: 'bold',
+    width: 30,
+    textAlign: 'center',
+  },
+  secondaryStatFormula: {
+    fontSize: 12,
+    color: colors.steelGrey,
+    fontStyle: 'italic',
+    flex: 1,
+    textAlign: 'right',
+  },
   weaponSelectionContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -456,6 +591,34 @@ const styles = StyleSheet.create({
   },
   weaponButtonTextSelected: {
     color: colors.obsidianBlack,
+  },
+  equipmentContainer: {
+    backgroundColor: colors.backgroundBase,
+    borderRadius: 8,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.steelGrey,
+    marginTop: spacing.md,
+  },
+  equipmentTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.accentGold,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  equipmentItem: {
+    marginBottom: spacing.sm,
+  },
+  equipmentName: {
+    fontSize: 14,
+    color: colors.ivoryWhite,
+    fontWeight: '600',
+  },
+  equipmentStats: {
+    fontSize: 12,
+    color: colors.steelGrey,
+    fontStyle: 'italic',
   },
   startButton: {
     marginTop: spacing.xl,

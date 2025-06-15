@@ -1,25 +1,26 @@
 // store/slices/playerSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { weapons, armors, Item } from '../../utils/items';
-import type { Weapon, Armor } from '../../utils/items';
+import { allWeapons, type WeaponType } from '../../data/weapons';
+import { allArmor } from '../../data/armor';
+import { getStartingItems } from '../../data/items';
+import type { Weapon, Armor, Item } from '../../data/items';
 import { QuestReward, Quest } from '../../utils/questTypes';
 import type { Coor } from '../../utils/mapGen';
 import { RootState } from '../index';
 
 export interface Traits {
   str: number; // Strength
-  spd: number; // Agility / Speed
-  stm: number; // Endurance / Stamina
-  smr: number; // Intelligence / Smarts
+  agility: number; // Agility (was spd)
+  endurance: number; // Endurance (was stm)
+  intelligence: number; // Intelligence (was smr)
   reputation: number;
-  persuade: number; // New: replaces gatherInformation
-  travel: number;
-  medicine: number; // New: replaces heal
+  persuade: number;
+  medicine: number;
   craft: number;
   perception: number;
   stealth: number;
   athletics: number;
-  survival: number; // New skill
+  survival: number;
 }
 
 export interface Equipped {
@@ -34,9 +35,6 @@ export interface QuestStatusInfo {
   status: QuestStatus;
   acceptedAtTick?: number;
   location?: Coor;
-  // completedAtTick?: number; // Add if needed for specific game logic
-  // failedAtTick?: number; // Add if needed for specific game logic
-  // We can infer completion/failure time from other game events or simply rely on status
 }
 
 export interface PlayerQuestsState {
@@ -49,7 +47,7 @@ export interface PlayerState {
   attributePoints: number;
   inventory: Array<Item>;
   equipped: Equipped;
-  startingWeapon: 'sword' | 'axe' | 'spear' | null; // Added starting weapon
+  startingWeapon: WeaponType | null;
   initiative: number;
   attack: number;
   defense: number;
@@ -71,12 +69,11 @@ const initialState: PlayerState = {
   name: '',
   traits: {
     str: 1,
-    spd: 1,
-    stm: 1,
-    smr: 1,
+    agility: 1,
+    endurance: 1,
+    intelligence: 1,
     reputation: 0,
     persuade: 0,
-    travel: 1,
     medicine: 0,
     craft: 0,
     perception: 0,
@@ -95,15 +92,50 @@ const initialState: PlayerState = {
   damageReduction: 0,
   hp: 0,
   currentHp: 0,
-  stamina: 0, // Initialize Max Stamina
-  currentStamina: 0, // Initialize Current Stamina
+  stamina: 0,
+  currentStamina: 0,
   quests: {},
   gold: 50,
   xp: 0,
-  // Training related state
   trainingFocus: null,
   trainingProgress: {},
 };
+
+// Helper function to calculate all secondary stats
+function calculateSecondaryStats(state: PlayerState): void {
+  const weaponAttack = state.equipped.weapon?.attack ?? 0;
+  const weaponDefense = state.equipped.weapon?.defense ?? 0;
+  const weaponDamage = state.equipped.weapon?.damage ?? 0;
+  const armorDR = state.equipped.armor?.damageReduction ?? 0;
+
+  // Calculate secondary stats
+  state.initiative = state.traits.agility + state.traits.intelligence;
+  state.attack = state.traits.agility + state.traits.intelligence + weaponAttack;
+  state.defense = state.traits.agility + state.traits.intelligence + weaponDefense;
+  state.damage = state.traits.str + weaponDamage;
+  state.damageReduction = armorDR;
+  
+  // Calculate HP and Stamina based on endurance
+  const newMaxHp = state.traits.endurance * 10;
+  const newMaxStamina = state.traits.endurance * 10;
+  
+  // If this is initial calculation (HP is 0), set current values to max
+  if (state.hp === 0) {
+    state.hp = newMaxHp;
+    state.currentHp = newMaxHp;
+    state.stamina = newMaxStamina;
+    state.currentStamina = newMaxStamina;
+  } else {
+    // Otherwise, adjust current values proportionally
+    const hpRatio = state.currentHp / state.hp;
+    const staminaRatio = state.currentStamina / state.stamina;
+    
+    state.hp = newMaxHp;
+    state.stamina = newMaxStamina;
+    state.currentHp = Math.min(Math.round(newMaxHp * hpRatio), newMaxHp);
+    state.currentStamina = Math.min(Math.round(newMaxStamina * staminaRatio), newMaxStamina);
+  }
+}
 
 const playerSlice = createSlice({
   name: 'player',
@@ -112,152 +144,24 @@ const playerSlice = createSlice({
     initializeCharacter: (
       state,
       action: PayloadAction<
-        Partial<Omit<PlayerState, 'traits' | 'name'>> & { // Omit traits to redefine its partial structure
+        Partial<Omit<PlayerState, 'traits' | 'name'>> & {
           name: string;
-          traits: Partial<Traits>; // Make all traits partial for initialization
-          startingWeapon?: 'sword' | 'axe' | 'spear';
+          traits: Partial<Traits>;
+          startingWeapon?: WeaponType;
         }
       >
     ) => {
       const { name, traits, startingWeapon } = action.payload;
-      state.name = name || '';
-
-      // Base attributes from payload or default to 1 (character creation will send these)
-      const baseStr = traits?.str ?? 1;
-      const baseSpd = traits?.spd ?? 1;
-      const baseStm = traits?.stm ?? 1;
-      const baseSmr = traits?.smr ?? 1;
-
-      state.traits = {
-        str: baseStr,
-        spd: baseSpd,
-        stm: baseStm,
-        smr: baseSmr,
-        // Non-skill point traits, default to values if not in payload
-        reputation: traits?.reputation ?? 0, // Default to 0 if not passed
-        travel: traits?.travel ?? 1,       // Default to 1 if not passed
-
-        // Skills from payload, default to 0 (character creation will send these)
-        athletics: traits?.athletics ?? 0,
-        persuade: traits?.persuade ?? 0,
-        survival: traits?.survival ?? 0,
-        stealth: traits?.stealth ?? 0,
-        medicine: traits?.medicine ?? 0,
-        craft: traits?.craft ?? 0,
-        perception: traits?.perception ?? 0,
-      };
-      state.attributePoints = 0; // Points are spent during creation
-      state.startingWeapon = startingWeapon || null;
-
-      // Build inventory - this might need adjustment based on how starting weapon is handled
-      // For now, keeping existing logic, but it might conflict/overlap with chosen starting weapon
-      state.inventory = [
-        ...weapons.filter((w) => w.strengthRequirement <= state.traits.str), // Changed to <=
-        ...armors.filter((a) => a.strengthRequirement <= state.traits.str),  // Changed to <=
-      ];
-
-      // Equip starting weapon if chosen, otherwise default logic
-      let equippedStartingWeapon = false;
-      if (state.startingWeapon) {
-        const weaponToEquip = weapons.find(
-          (w) => 
-            w.name.toLowerCase().includes(state.startingWeapon!) && // Simple name check
-            w.strengthRequirement <= state.traits.str
-        );
-        if (weaponToEquip) {
-          state.equipped.weapon = weaponToEquip;
-          equippedStartingWeapon = true;
-        }
-      }
       
-      if (!equippedStartingWeapon) {
-        state.equipped.weapon =
-          weapons.find(
-            (w) =>
-              w.strengthRequirement <= state.traits.str && w.quality === 'normal'
-          ) || null;
-      }
-      
-      state.equipped.armor =
-        armors.find(
-          (a) =>
-            a.strengthRequirement <= state.traits.str && a.quality === 'normal'
-        ) || null;
-
-      // Compute derived
-      state.initiative = state.traits.smr + state.traits.spd;
-      state.attack = state.traits.smr + state.traits.spd;
-      state.defense = state.traits.smr + state.traits.spd;
-      state.damage =
-        state.traits.str + (state.equipped.weapon?.damage ?? 0);
-      state.damageReduction =
-        state.equipped.armor?.damageReduction ?? 0;
-      state.hp = state.traits.stm * 10;
-      state.currentHp = state.hp;
-      state.stamina = state.traits.stm * 10; // Max stamina based on stm trait
-      state.currentStamina = state.stamina; // Full stamina at init
-      state.quests = {};
-      // Ensure training progress is initialized for all traits, though it could be lazy
-      Object.keys(state.traits).forEach(traitKey => {
-        state.trainingProgress[traitKey as keyof Traits] = 0;
-      });
-    },
-
-    incrementAttributePoints: (state, action: PayloadAction<number>) => {
-      state.attributePoints += action.payload;
-    },
-
-    allocatePoint: (state, action: PayloadAction<keyof Traits>) => {
-      const key = action.payload;
-      if (state.attributePoints <= 0) return;
-
-      state.traits[key] += 1;
-      state.attributePoints -= 1;
-
-      // Recompute derived stats (only if relevant traits changed)
-      if (['smr', 'spd', 'str', 'stm'].includes(key)) {
-        state.initiative = state.traits.smr + state.traits.spd;
-        state.attack = state.traits.smr + state.traits.spd;
-        state.defense = state.traits.smr + state.traits.spd;
-        state.damage =
-          state.traits.str + (state.equipped.weapon?.damage ?? 0);
-        state.damageReduction =
-          state.equipped.armor?.damageReduction ?? 0;
-      }
-      if (key === 'stm') {
-        const oldMaxHp = state.hp;
-        const newMaxHp = state.traits.stm * 10;
-        state.hp = newMaxHp;
-        state.currentHp = Math.min(state.currentHp + (newMaxHp - oldMaxHp), newMaxHp);
-
-        const oldMaxStamina = state.stamina;
-        const newMaxStamina = state.traits.stm * 10; // Also update stamina
-        state.stamina = newMaxStamina;
-        state.currentStamina = Math.min(state.currentStamina + (newMaxStamina - oldMaxStamina), newMaxStamina);
-      }
-      // Note: perception, stealth, athletics don't directly affect these derived stats currently
-    },
-
-    equipWeapon: (state, action: PayloadAction<Weapon>) => {
-      state.equipped.weapon = action.payload;
-      state.damage = state.traits.str + action.payload.damage;
-    },
-
-    equipArmor: (state, action: PayloadAction<Armor>) => {
-      state.equipped.armor = action.payload;
-      state.damageReduction = action.payload.damageReduction;
-    },
-
-    resetPlayer: (state) => {
+      // Reset to initial state first to ensure clean slate, but create new object references
       state.name = '';
       state.traits = {
-        str: 1, // Reset to base values
-        spd: 1,
-        stm: 1,
-        smr: 1,
+        str: 1,
+        agility: 1,
+        endurance: 1,
+        intelligence: 1,
         reputation: 0,
         persuade: 0,
-        travel: 1,
         medicine: 0,
         craft: 0,
         perception: 0,
@@ -265,9 +169,9 @@ const playerSlice = createSlice({
         athletics: 0,
         survival: 0,
       };
-      state.attributePoints = 5; // Or 0 if reset means full re-creation setup
+      state.attributePoints = 5;
       state.inventory = [];
-      state.equipped = { weapon: null, armor: null };
+      state.equipped = { weapon: null, armor: null }; // Create new object
       state.startingWeapon = null;
       state.initiative = 0;
       state.attack = 0;
@@ -281,12 +185,209 @@ const playerSlice = createSlice({
       state.quests = {};
       state.gold = 50;
       state.xp = 0;
-      // Reset training state
       state.trainingFocus = null;
       state.trainingProgress = {};
-      Object.keys(initialState.traits).forEach(traitKey => {
+      
+      state.name = name || '';
+
+      // Base attributes from payload or default to 1
+      const baseStr = traits?.str ?? 1;
+      const baseAgility = traits?.agility ?? 1;
+      const baseEndurance = traits?.endurance ?? 1;
+      const baseIntelligence = traits?.intelligence ?? 1;
+
+      state.traits = {
+        str: baseStr,
+        agility: baseAgility,
+        endurance: baseEndurance,
+        intelligence: baseIntelligence,
+        reputation: traits?.reputation ?? 0,
+        athletics: traits?.athletics ?? 0,
+        persuade: traits?.persuade ?? 0,
+        survival: traits?.survival ?? 0,
+        stealth: traits?.stealth ?? 0,
+        medicine: traits?.medicine ?? 0,
+        craft: traits?.craft ?? 0,
+        perception: traits?.perception ?? 0,
+      };
+      
+      state.attributePoints = 0;
+      state.startingWeapon = startingWeapon || null;
+
+      // Get appropriate poor quality weapon and armor based on strength
+      let equippedWeapon = null;
+      if (startingWeapon) {
+        equippedWeapon = allWeapons.find(weapon => 
+          weapon.type === startingWeapon && 
+          weapon.strengthRequirement === state.traits.str && 
+          weapon.quality === 'poor'
+        ) || allWeapons.find(weapon => 
+          weapon.type === startingWeapon && 
+          weapon.strengthRequirement === state.traits.str
+        );
+      }
+
+      const equippedArmor = allArmor.find(armor => 
+        armor.strengthRequirement === state.traits.str && 
+        armor.quality === 'poor'
+      ) || allArmor.find(armor => 
+        armor.strengthRequirement === state.traits.str
+      );
+
+      // Set equipment
+      state.equipped.weapon = equippedWeapon || null;
+      state.equipped.armor = equippedArmor || null;
+
+      // Build inventory with only starting items (no duplicates of equipped items)
+      const startingConsumables = getStartingItems();
+      state.inventory = [...startingConsumables];
+
+      // Add the equipped weapon and armor to inventory so they can be unequipped/re-equipped
+      if (equippedWeapon) {
+        state.inventory.push(equippedWeapon);
+      }
+      if (equippedArmor) {
+        state.inventory.push(equippedArmor);
+      }
+
+      // Compute derived stats with new attribute names
+      calculateSecondaryStats(state);
+      
+      // Initialize training progress for all traits
+      Object.keys(state.traits).forEach(traitKey => {
         state.trainingProgress[traitKey as keyof Traits] = 0;
       });
+    },
+
+    incrementTrait: (
+      state,
+      action: PayloadAction<{
+        key: keyof Traits;
+        cost: number;
+      }>
+    ) => {
+      const { key, cost } = action.payload;
+      if (state.attributePoints >= cost) {
+        state.traits[key] += 1;
+        state.attributePoints -= cost;
+
+        // Update derived stats if core attributes changed
+        if (['intelligence', 'agility', 'str', 'endurance'].includes(key)) {
+          calculateSecondaryStats(state);
+        }
+      }
+    },
+
+    resetPlayer: (state) => {
+      Object.assign(state, {
+        ...initialState,
+        traits: {
+          str: 1,
+          agility: 1,
+          endurance: 1,
+          intelligence: 1,
+          reputation: 0,
+          persuade: 0,
+          medicine: 0,
+          craft: 0,
+          perception: 0,
+          stealth: 0,
+          athletics: 0,
+          survival: 0,
+        },
+        inventory: [],
+        equipped: { weapon: null, armor: null },
+        stamina: 0,
+        currentStamina: 0,
+        quests: {},
+        trainingFocus: null,
+        trainingProgress: {},
+      });
+    },
+
+    trainSkill: (
+      state,
+      action: PayloadAction<{
+        key: keyof Traits;
+        progress: number;
+      }>
+    ) => {
+      const { key, progress } = action.payload;
+
+      // Initialize progress if it doesn't exist
+      if (!state.trainingProgress[key]) {
+        state.trainingProgress[key] = 0;
+      }
+
+      // Add progress
+      state.trainingProgress[key]! += progress;
+
+      // Check if enough progress to level up (100 points = 1 level)
+      const progressNeeded = 100;
+      if (state.trainingProgress[key]! >= progressNeeded) {
+        state.trainingProgress[key]! -= progressNeeded;
+        state.traits[key] += 1;
+
+        // Update derived stats if core attributes changed
+        if (['intelligence', 'agility', 'str', 'endurance'].includes(key)) {
+          calculateSecondaryStats(state);
+        }
+      }
+    },
+
+    restoreHealth: (
+      state,
+      action: PayloadAction<{
+        healthToRestore: number;
+        ticksRested: number;
+      }>
+    ) => {
+      const { healthToRestore, ticksRested } = action.payload;
+      const staminaRecoveryPerTick = 5;
+
+      // Restore health
+      state.currentHp = Math.min(state.hp, state.currentHp + healthToRestore);
+
+      // Restore stamina based on ticks rested
+      state.currentStamina = Math.min(
+        state.stamina,
+        state.currentStamina + ticksRested * staminaRecoveryPerTick
+      );
+    },
+
+    completeTraining: (
+      state,
+      action: PayloadAction<{
+        trait: keyof Traits;
+        pointsGained: number;
+      }>
+    ) => {
+      const { trait: focusTrait, pointsGained } = action.payload;
+
+      // Add the points to the trait
+      state.traits[focusTrait] += pointsGained;
+
+      // Reset training focus
+      state.trainingFocus = null;
+
+      // Update derived stats if core attributes changed
+      if (['intelligence', 'agility', 'str', 'endurance'].includes(focusTrait)) {
+        calculateSecondaryStats(state);
+      }
+    },
+
+    incrementAttributePoints: (state, action: PayloadAction<number>) => {
+      state.attributePoints += action.payload;
+    },
+
+    equipWeapon: (state, action: PayloadAction<Weapon>) => {
+      state.equipped.weapon = action.payload;
+      calculateSecondaryStats(state);
+    },
+
+    equipArmor: (state, action: PayloadAction<Armor>) => {
+      state.equipped.armor = action.payload;
+      calculateSecondaryStats(state);
     },
 
     updateTraits: (state, action: PayloadAction<Partial<Traits>>) => {
@@ -296,7 +397,7 @@ const playerSlice = createSlice({
       (Object.keys(updates) as Array<keyof Traits>).forEach((key) => {
           if (updates[key] !== undefined && state.traits[key] !== undefined) {
               state.traits[key] = updates[key]!;
-              if (['smr', 'spd', 'str', 'stm'].includes(key)) {
+              if (['intelligence', 'agility', 'str', 'endurance'].includes(key)) {
                   derivedChanged = true;
               }
           }
@@ -304,23 +405,7 @@ const playerSlice = createSlice({
 
       // Recompute derived only if relevant base traits changed
       if (derivedChanged) {
-          state.initiative = state.traits.smr + state.traits.spd;
-          state.attack = state.traits.smr + state.traits.spd;
-          state.defense = state.traits.smr + state.traits.spd;
-          state.damage =
-              state.traits.str + (state.equipped.weapon?.damage ?? 0);
-          state.damageReduction =
-              state.equipped.armor?.damageReduction ?? 0;
-
-          const oldMaxHp = state.hp;
-          const newMaxHp = state.traits.stm * 10;
-          state.hp = newMaxHp;
-          state.currentHp = Math.min(state.currentHp + (newMaxHp - oldMaxHp), newMaxHp);
-
-          const oldMaxStamina = state.stamina;
-          const newMaxStamina = state.traits.stm * 10; // Also update stamina
-          state.stamina = newMaxStamina;
-          state.currentStamina = Math.min(state.currentStamina + (newMaxStamina - oldMaxStamina), newMaxStamina);
+          calculateSecondaryStats(state);
       }
     },
 
@@ -463,25 +548,8 @@ const playerSlice = createSlice({
           progress = 0; // Reset progress for the new level
 
           // Recompute derived stats if necessary (similar to allocatePoint)
-          if (['smr', 'spd', 'str', 'stm'].includes(focusTrait)) {
-            state.initiative = state.traits.smr + state.traits.spd;
-            state.attack = state.traits.smr + state.traits.spd;
-            state.defense = state.traits.smr + state.traits.spd;
-            state.damage =
-              state.traits.str + (state.equipped.weapon?.damage ?? 0);
-            state.damageReduction =
-              state.equipped.armor?.damageReduction ?? 0;
-          }
-          if (focusTrait === 'stm') {
-            const oldMaxHp = state.hp;
-            const newMaxHp = state.traits.stm * 10;
-            state.hp = newMaxHp;
-            state.currentHp = Math.min(state.currentHp + (newMaxHp - oldMaxHp), newMaxHp);
-
-            const oldMaxStamina = state.stamina;
-            const newMaxStamina = state.traits.stm * 10;
-            state.stamina = newMaxStamina;
-            state.currentStamina = Math.min(state.currentStamina + (newMaxStamina - oldMaxStamina), newMaxStamina);
+          if (['intelligence', 'agility', 'str', 'endurance'].includes(focusTrait)) {
+            calculateSecondaryStats(state);
           }
         } else {
           // Not enough ticks in this session to level up, just add progress
@@ -497,10 +565,7 @@ const playerSlice = createSlice({
 
 export const {
   initializeCharacter,
-  incrementAttributePoints,
-  allocatePoint,
-  equipWeapon,
-  equipArmor,
+  incrementTrait,
   resetPlayer,
   updateTraits,
   startQuest,
@@ -514,9 +579,14 @@ export const {
   addGold,
   addXp,
   spendGold,
-  // Export training actions
   setTrainingFocus,
   applyTraining,
+  incrementAttributePoints,
+  equipWeapon,
+  equipArmor,
+  trainSkill,
+  restoreHealth,
+  completeTraining,
 } = playerSlice.actions;
 
 export const selectPlayerGold = (state: RootState) => state.player.gold;

@@ -67,11 +67,11 @@ export const killBoars1: Quest = {
         },
         {
           type: 'check',
-          description: 'Ask about the "dark magic" (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Ask about the "dark magic" (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
           successOutcome: 'dark_magic_info',
-          failureOutcome: 'farmer_shrugs',
+          failureOutcome: 'vague_magic_info',
         },
         {
           type: 'narrative',
@@ -206,8 +206,8 @@ export const killBoars1: Quest = {
         }
       ]
     },
-    'farmer_shrugs': {
-      id: 'farmer_shrugs',
+    'vague_magic_info': {
+      id: 'vague_magic_info',
       title: 'Superstitious Talk',
       description: 'The farmer shrugs. "Just old wives\' tales, probably. But these boars... they\'re definitely not normal."',
       img: PLACEHOLDER_IMG,
@@ -346,11 +346,11 @@ export const killBoars1: Quest = {
       options: [
         {
           type: 'check',
-          description: 'Attempt to disrupt the magical flow (Smarts DC 14).',
-          skill: 'smr',
+          description: 'Attempt to disrupt the magical flow (Intelligence DC 14).',
+          skill: 'intelligence',
           dc: 14,
           successOutcome: 'magic_disrupted',
-          failureOutcome: 'magic_backlash',
+          failureOutcome: 'disruption_failed',
         },
         {
           type: 'check',
@@ -479,8 +479,8 @@ export const killBoars1: Quest = {
         },
         {
           type: 'check',
-          description: 'Create a distraction to lure guards away (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Create a distraction to lure guards away (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
           successOutcome: 'guards_distracted',
           failureOutcome: 'distraction_failed',
@@ -653,8 +653,8 @@ export const killBoars1: Quest = {
       rewards: { xp: 30, gold: 10, reputationChange: 2 },
       options: []
     },
-    'magic_backlash': {
-      id: 'magic_backlash',
+    'disruption_failed': {
+      id: 'disruption_failed',
       title: 'Dangerous Interference',
       description: 'Your attempt to disrupt the magic fails spectacularly. Dark energy lashes out, and the stones pulse brighter. You hear an enraged roar from deep in the forest - you\'ve made the alpha boar even more dangerous!',
       img: PLACEHOLDER_IMG,

@@ -28,7 +28,7 @@ import { Quest } from '../utils/questTypes';
 import { LocationConfig, LocationType } from '../utils/locationConfig';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
-import DiceRoller from './DiceRoller';
+import DiceRoller, { TraitContribution } from './DiceRoller';
 import { TradeModal } from './TradeModal';
 import { RestModal } from './RestModal';
 import { TrainModal } from './TrainModal';
@@ -76,13 +76,11 @@ export default function LocationScreen({ config, locationType }: Props) {
   const [currentDiceRollResult, setCurrentDiceRollResult] = useState<number | null>(null);
   const [showLookForQuestsButton, setShowLookForQuestsButton] = useState(true); // Control visibility of the search button
 
-  // Calculate modifier for the dice roll
-  // User request: 4dF + Intelligence + Persuasion/Persuade + Reputation
-  // Assuming playerTraits.smr is Intelligence, playerTraits.persuade is Persuasion
-  const gatherModifier = 
-    (playerTraits.smr || 0) + // Intelligence (using smr as placeholder)
-    (playerTraits.persuade || 0) + 
-    (playerTraits.reputation || 0);
+  // Calculate persuasion bonus based on Intelligence, Persuade skill, and Reputation
+  const persuasionBonus = 
+    (playerTraits.intelligence || 0) + // Intelligence
+    (playerTraits.persuade || 0) + // Persuasion skill
+    (playerTraits.reputation || 0); // Reputation
 
   // Prune expired quests for this location when component mounts or time changes
   useEffect(() => {
@@ -120,10 +118,11 @@ export default function LocationScreen({ config, locationType }: Props) {
   };
 
   // --- Dice Roll Completion Handler ---
-  const handleRollComplete = (totalFromDice: number) => {
+  const handleRollComplete = (totalFromDice: number, diceResult: number, faces: string[]) => {
     setIsRolling(false); 
-    setCurrentDiceRollResult(totalFromDice); // totalFromDice is 4dF + gatherModifier
+    setCurrentDiceRollResult(totalFromDice);
     
+    // Location system: Information gathering with different outcomes based on dice results
     const activeIds: string[] = [];
     const completedIds: string[] = [];
     const failedIds: string[] = [];
@@ -134,19 +133,35 @@ export default function LocationScreen({ config, locationType }: Props) {
       else if (qInfo.status === 'failed') failedIds.push(qInfo.id);
     });
 
-    // The roll from DiceRoller (totalFromDice) already includes the baseModifier (gatherModifier).
-    // This is the final calculated roll which discoverQuests expects to be capped (1-10).
-    // discoverQuests also clamps it, but good practice for caller to be aware.
-    const finalCalculatedRoll = totalFromDice; 
+    // Different from quest/battle: Location system uses dice results for information quality
+    let calculatedRoll = totalFromDice;
+    
+    // Exceptional information gathering on high dice rolls
+    if (diceResult >= 3) {
+      calculatedRoll += 2; // Bonus to quest discovery
+      console.log('Exceptional information gathering! Bonus to quest discovery.');
+    }
+    
+    // Poor information on very low dice rolls
+    if (diceResult <= -3) {
+      calculatedRoll = Math.max(1, calculatedRoll - 1); // Penalty but minimum 1
+      console.log('Poor information gathering. Some details missed.');
+    }
+    
+    // Cap the roll as expected by quest logic (1-10)
+    const finalCalculatedRoll = Math.max(1, Math.min(10, calculatedRoll));
 
     const newlyPossibleQuests = fetchQuestsFromLogic({
       activeQuestIds: activeIds,
       completedQuestIds: completedIds,
       failedQuestIds: failedIds,
-      calculatedRoll: finalCalculatedRoll, // Pass the final roll (already includes modifiers)
+      calculatedRoll: finalCalculatedRoll,
     });
 
-    // Dispatch the async thunk 
+    // Store additional info about the roll quality for UI feedback
+    const rollQuality = diceResult >= 3 ? 'excellent' : 
+                       diceResult <= -3 ? 'poor' : 'normal';
+
     dispatch(
       updateDiscoveredQuestsAsync({
         locationId,
@@ -351,8 +366,12 @@ export default function LocationScreen({ config, locationType }: Props) {
       <DiceRoller
         visible={isRolling}
         title={'Gather Information'} // Context for the roll
+        traitContributions={[
+          { name: 'Intelligence', value: playerTraits.intelligence || 0 },
+          { name: 'Persuade', value: playerTraits.persuade || 0 },
+          { name: 'Reputation', value: playerTraits.reputation || 0 }
+        ]}
         onComplete={handleRollComplete}
-        baseModifier={gatherModifier} // Pass the calculated modifier
       />
 
       {/* Trade Modal */}
@@ -465,7 +484,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.forestGreen,
   },
   questItemFailed: {
-    backgroundColor: colors.crimsonRed,
+    backgroundColor: colors.bloodRed,
   },
   questItemExpired: {
     backgroundColor: colors.steelGrey,

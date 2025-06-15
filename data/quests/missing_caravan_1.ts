@@ -45,11 +45,11 @@ export const missingCaravan1: Quest = {
         },
         {
           type: 'check',
-          description: 'Inquire about recent bandit activity (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Inquire about recent bandit activity (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
-          successOutcome: 'bandit_intelligence_gathered',
-          failureOutcome: 'general_bandit_info',
+          successOutcome: 'bandit_info',
+          failureOutcome: 'no_bandit_info',
         },
         {
           type: 'narrative',
@@ -85,8 +85,8 @@ export const missingCaravan1: Quest = {
         },
         {
           type: 'check',
-          description: 'Inquire about the exact value of the cargo (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Inquire about the exact value of the cargo (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
           successOutcome: 'cargo_value_learned',
           failureOutcome: 'general_cargo_info',
@@ -180,8 +180,8 @@ export const missingCaravan1: Quest = {
         }
       ]
     },
-    'bandit_intelligence_gathered': {
-      id: 'bandit_intelligence_gathered',
+    'bandit_info': {
+      id: 'bandit_info',
       title: 'Bandit Activity Analysis',
       description: 'Your knowledge reveals important patterns. "The Iron Wolves have been increasingly active in that region. They\'re organized, well-armed, and led by someone called \'The Mountain Shadow.\' They prefer to strike at the narrowest part of Eagle\'s Pass."',
       img: PLACEHOLDER_IMG,
@@ -189,8 +189,8 @@ export const missingCaravan1: Quest = {
       options: [
         {
           type: 'check',
-          description: 'Ask about The Mountain Shadow\'s tactics (Smarts DC 12).',
-          skill: 'smr',
+          description: 'Ask about The Mountain Shadow\'s tactics (Intelligence DC 12).',
+          skill: 'intelligence',
           dc: 12,
           successOutcome: 'shadow_tactics_learned',
           failureOutcome: 'basic_shadow_info',
@@ -332,8 +332,8 @@ export const missingCaravan1: Quest = {
       options: [
         {
           type: 'check',
-          description: 'Analyze the blood stains to determine what happened (Smarts DC 11).',
-          skill: 'smr',
+          description: 'Analyze the blood stains to determine what happened (Intelligence DC 11).',
+          skill: 'intelligence',
           dc: 11,
           successOutcome: 'blood_analysis_success',
           failureOutcome: 'blood_analysis_unclear',
@@ -478,8 +478,8 @@ export const missingCaravan1: Quest = {
         },
         {
           type: 'check',
-          description: 'Count the bandits and assess their strength (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Count the bandits and assess their strength (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
           successOutcome: 'bandit_force_assessed',
           failureOutcome: 'rough_bandit_estimate',
@@ -527,8 +527,8 @@ export const missingCaravan1: Quest = {
       options: [
         {
           type: 'check',
-          description: 'Identify the best entry and exit points (Smarts DC 10).',
-          skill: 'smr',
+          description: 'Identify the best entry and exit points (Intelligence DC 10).',
+          skill: 'intelligence',
           dc: 10,
           successOutcome: 'optimal_rescue_route',
           failureOutcome: 'basic_rescue_route',

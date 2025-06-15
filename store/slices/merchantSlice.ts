@@ -1,20 +1,17 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { Item, Weapon, Armor, weapons as allWeapons, armors as allArmors } from '../../utils/items';
+import { Item, Weapon, Armor, allWeapons, allArmor, isWeapon, isArmor } from '../../data/items';
 import { RootState } from '../index';
 
-// Define interfaces that extend Weapon and Armor with merchant-specific fields
-export interface WeaponWithExpiry extends Weapon {
-  instanceId: string; // Unique ID for this specific instance in merchant inventory
+// Define merchant-specific versions of items
+export interface BaseMerchantItem {
+  instanceId: string;
   expiresAtTick: number;
 }
 
-export interface ArmorWithExpiry extends Armor {
-  instanceId: string; // Unique ID for this specific instance in merchant inventory
-  expiresAtTick: number;
-}
+export interface MerchantWeapon extends Weapon, BaseMerchantItem {}
+export interface MerchantArmor extends Armor, BaseMerchantItem {}
 
-// MerchantItem is now a union of these specific types
-export type MerchantItem = WeaponWithExpiry | ArmorWithExpiry;
+export type MerchantItem = MerchantWeapon | MerchantArmor;
 
 interface MerchantState {
   inventory: MerchantItem[];
@@ -34,7 +31,8 @@ const MAX_MERCHANT_ITEMS = 10;
 const REFRESH_INTERVAL_TICKS = 1000;
 
 function generateNewMerchantItems(currentTick: number, count: number = 5): MerchantItem[] {
-  const allPossibleBaseItems: Item[] = [...allWeapons, ...allArmors];
+  // Only include weapons and armor for merchants
+  const allPossibleBaseItems: (Weapon | Armor)[] = [...allWeapons, ...allArmor];
   const generatedItems: MerchantItem[] = [];
 
   if (allPossibleBaseItems.length === 0) return [];
@@ -47,7 +45,8 @@ function generateNewMerchantItems(currentTick: number, count: number = 5): Merch
       ...templateItem,
       instanceId: `${templateItem.id}-merchant-${currentTick}-${i}-${Math.random().toString(36).substring(7)}`,
       expiresAtTick: currentTick + ITEM_EXPIRATION_DURATION_TICKS,
-    };
+    } as MerchantItem;
+    
     generatedItems.push(merchantSpecificItem);
   }
   return generatedItems;
@@ -89,14 +88,14 @@ const merchantSlice = createSlice({
     },
     // Action to handle selling an item to the merchant (player sells)
     // This might involve adding it to merchant stock or just giving gold
-    playerSoldItem: (state, action: PayloadAction<{ item: Item; currentTick: number }>) => {
+    playerSoldItem: (state, action: PayloadAction<{ item: Weapon | Armor; currentTick: number }>) => {
       const { item: soldItem, currentTick } = action.payload;
       
       const merchantVersion: MerchantItem = {
         ...soldItem,
         instanceId: `${soldItem.id}-sold-${currentTick}-${Math.random().toString(36).substring(7)}`,
         expiresAtTick: currentTick + ITEM_EXPIRATION_DURATION_TICKS / 2,
-      };
+      } as MerchantItem;
 
       if (state.inventory.length < MAX_MERCHANT_ITEMS + 5 /* Allow some overstock from player sales */ && 
           !state.inventory.some(i => i.id === soldItem.id && i.expiresAtTick > currentTick) /* Avoid exact duplicate active items */) {

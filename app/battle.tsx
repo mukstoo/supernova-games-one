@@ -7,14 +7,15 @@ import {
   TouchableOpacity,
   Modal,
   Animated,
+  ScrollView,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
-import DiceRoller from '../components/DiceRoller';
+import DiceRoller, { TraitContribution } from '../components/DiceRoller';
 import { RootState } from '../store';
-import { enemies } from '../utils/enemies';
+import { getRandomEnemy } from '../data/enemies';
 import { colors } from '../theme/colors';
-import { incrementAttributePoints } from '../store/slices/playerSlice';
+import { incrementAttributePoints, takeDamage } from '../store/slices/playerSlice';
 
 const STANCES = ['Powerful', 'Precise', 'Normal', 'Defensive'];
 const ACTIONS = ['Light Attack', 'Heavy Attack'];
@@ -24,8 +25,7 @@ export default function BattleScreen() {
   const dispatch = useDispatch();
   const player = useSelector((s: RootState) => s.player);
 
-  const [enemy, setEnemy] = useState(enemies[0]);
-  const [playerHp, setPlayerHp] = useState(player.currentHp);
+  const [enemy, setEnemy] = useState(getRandomEnemy());
   const [enemyHp, setEnemyHp] = useState(enemy.currentHp);
   const [log, setLog] = useState<string[]>([]);
   const [turn, setTurn] = useState<'player' | 'enemy'>('player');
@@ -46,7 +46,7 @@ export default function BattleScreen() {
 
   useEffect(() => {
     // pick enemy then roll initiative
-    const e = enemies[Math.floor(Math.random() * enemies.length)];
+    const e = getRandomEnemy();
     setEnemy(e);
     setEnemyHp(e.currentHp);
     setRollContext('Initiative');
@@ -58,51 +58,121 @@ export default function BattleScreen() {
 
   const formatSigned = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 
-  const handleRollComplete = (total: number) => {
+  // Get trait contributions for different roll contexts
+  const getTraitContributions = (): TraitContribution[] => {
     if (rollContext === 'Initiative') {
-      const playerInitDie = total;
-      const playerInit = playerInitDie + player.initiative;
+      return [
+        { name: 'Agility', value: player.traits.agility },
+        { name: 'Intelligence', value: player.traits.intelligence }
+      ];
+    } else if (rollContext === 'Defense') {
+      const stanceMod = stanceMods[stance].def;
+      const contributions: TraitContribution[] = [
+        { name: 'Agility', value: player.traits.agility },
+        { name: 'Intelligence', value: player.traits.intelligence }
+      ];
+      if (player.equipped.weapon?.defense) {
+        contributions.push({ name: 'Weapon Def', value: player.equipped.weapon.defense });
+      }
+      if (stanceMod !== 0) {
+        contributions.push({ name: 'Stance', value: stanceMod });
+      }
+      return contributions;
+    } else {
+      // Attack rolls
+      const stanceMod = stanceMods[stance].atk;
+      const actionMod = rollContext === 'Light Attack' ? 1 : -1;
+      const contributions: TraitContribution[] = [
+        { name: 'Agility', value: player.traits.agility },
+        { name: 'Intelligence', value: player.traits.intelligence }
+      ];
+      if (player.equipped.weapon?.attack) {
+        contributions.push({ name: 'Weapon Atk', value: player.equipped.weapon.attack });
+      }
+      if (stanceMod !== 0) {
+        contributions.push({ name: 'Stance', value: stanceMod });
+      }
+      if (actionMod !== 0) {
+        contributions.push({ name: 'Action', value: actionMod });
+      }
+      return contributions;
+    }
+  };
+
+  const handleRollComplete = (total: number, diceResult: number, faces: string[]) => {
+    if (rollContext === 'Initiative') {
+      // Battle system: Initiative determines turn order
+      const playerInit = total;
       const enemyInit = enemy.initiative;
       addLog('Initiative:');
-      addLog(` Player ${playerInit} (${formatSigned(playerInitDie)} + ${player.initiative})`);
-      addLog(` Enemy  ${enemyInit} (${enemyInit})`);
+      addLog(` Player ${playerInit} vs Enemy ${enemyInit}`);
+      
+      // Extremely high dice rolls can provide combat bonuses
+      if (diceResult >= 3) {
+        addLog(' → Exceptional initiative! +1 attack next turn');
+        // Could store this bonus for next attack
+      }
+      
       setTurn(playerInit >= enemyInit ? 'player' : 'enemy');
     } else if (rollContext === 'Defense') {
-      const defDie = total;
-      const defMod = stanceMods[stance].def;
-      const defTotal = defDie + player.defense + defMod;
+      // Battle system: Defense roll vs enemy attack
+      const defTotal = total;
       const atk = enemy.attack;
       const diff = atk - defTotal;
       addLog('Defense:');
-      addLog(` Roll ${formatSigned(defDie)} + def ${player.defense} ${defMod>=0?`+${defMod}`:`${defMod}`} = ${defTotal}`);
+      addLog(` Defense ${defTotal} vs Enemy Attack ${atk}`);
+      
       if (diff >= 0) {
         const raw = enemy.damage + diff;
         const dmg = Math.max(0, raw - player.damageReduction);
-        setPlayerHp(h => h - dmg);
-        addLog(` Enemy attack ${atk} → hit for ${dmg}`);
+        dispatch(takeDamage(dmg));
+        addLog(` → Hit for ${dmg} damage`);
+        
+        // Critical failure on very low dice rolls
+        if (diceResult <= -3) {
+          addLog(' → Critical defense failure! Stunned next turn');
+          // Could apply stun effect
+        }
       } else {
-        addLog(` Enemy attack ${atk} → miss`);
+        addLog(` → Miss`);
+        
+        // Perfect defense on high dice rolls
+        if (diceResult >= 3) {
+          addLog(' → Perfect defense! Counter-attack opportunity');
+          // Could enable immediate counter-attack
+        }
       }
       setTurn('player');
     } else {
-      // action roll (Light or Heavy)
+      // Battle system: Attack rolls
       const action = rollContext!;
-      const die = total;
-      const mods = stanceMods[stance];
-      const actionMods = action === 'Light Attack'
-        ? { atk: 1, dmg: -2 }
-        : { atk: -1, dmg: 2 };
-      const atkTotal = die + player.attack + mods.atk + actionMods.atk;
+      const atkTotal = total;
       const diff = atkTotal - enemy.defense;
       addLog(`${action}:`);
-      addLog(` Roll ${formatSigned(die)} + atk ${player.attack} ${mods.atk>=0?`+${mods.atk}`:`${mods.atk}`} ${actionMods.atk>=0?`+${actionMods.atk}`:`${actionMods.atk}`} = ${atkTotal}`);
+      addLog(` Attack ${atkTotal} vs Enemy Defense ${enemy.defense}`);
+      
       if (diff >= 0) {
-        const raw = player.damage + mods.dmg + actionMods.dmg + diff;
+        const mods = stanceMods[stance];
+        const actionMods = action === 'Light Attack' ? { dmg: -2 } : { dmg: 2 };
+        let raw = player.damage + mods.dmg + actionMods.dmg + diff;
+        
+        // Critical hit on high dice rolls - different from quest system!
+        if (diceResult >= 3) {
+          raw += 5; // Extra damage for critical hit
+          addLog(' → Critical hit! +5 damage');
+        }
+        
         const dmg = Math.max(0, raw - enemy.damageReduction);
         setEnemyHp(h => h - dmg);
-        addLog(` → hit for ${dmg}`);
+        addLog(` → Hit for ${dmg} damage`);
       } else {
-        addLog(' → miss');
+        addLog(` → Miss`);
+        
+        // Critical miss on very low dice rolls
+        if (diceResult <= -3) {
+          addLog(' → Critical miss! Lost balance, -1 defense next turn');
+          // Could apply debuff
+        }
       }
       setTurn('enemy');
     }
@@ -127,13 +197,13 @@ export default function BattleScreen() {
         setWinner('player');
         setBattleOver(true);
         dispatch(incrementAttributePoints(1));
-      } else if (playerHp <= 0) {
+      } else if (player.currentHp <= 0) {
         addLog('You have been defeated...');
         setWinner('enemy');
         setBattleOver(true);
       }
     }
-  }, [enemyHp, playerHp]);
+  }, [enemyHp, player.currentHp]);
 
   return (
     <View style={styles.container}>
@@ -150,18 +220,24 @@ export default function BattleScreen() {
               style={[
                 styles.hpBarFill,
                 {
-                  width: `${(playerHp / player.hp) * 100}%`,
-                  backgroundColor: `rgb(${Math.round((1 - playerHp / player.hp) * 255)},${Math.round((playerHp / player.hp) * 255)},0)`,
+                  width: `${(player.currentHp / player.hp) * 100}%`,
+                  backgroundColor: `rgb(${Math.round((1 - player.currentHp / player.hp) * 255)},${Math.round((player.currentHp / player.hp) * 255)},0)`,
                 },
               ]}
             />
-            <Text style={styles.hpLabel}>HP {playerHp}/{player.hp}</Text>
+            <Text style={styles.hpLabel}>HP {player.currentHp}/{player.hp}</Text>
           </View>
         </View>
         <View style={styles.logCol}>
-          {log.map((l, i) => (
-            <Text key={i} style={styles.logText}>{l}</Text>
-          ))}
+          <ScrollView 
+            style={styles.logScrollView}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={styles.logContent}
+          >
+            {log.map((l, i) => (
+              <Text key={i} style={styles.logText}>{l}</Text>
+            ))}
+          </ScrollView>
         </View>
         <View style={styles.charCol}>
           <View style={styles.imagePlaceholder}>
@@ -228,6 +304,7 @@ export default function BattleScreen() {
       <DiceRoller
         visible={rolling}
         title={rollContext}
+        traitContributions={getTraitContributions()}
         onComplete={handleRollComplete}
       />
 
@@ -279,7 +356,20 @@ const styles = StyleSheet.create({
     color: colors.ivoryWhite, fontSize: 12, fontWeight: '600',
   },
   logCol: {
-    width: '30%', justifyContent: 'flex-start',
+    width: '30%', 
+    height: '100%',
+    justifyContent: 'flex-start',
+  },
+  logScrollView: {
+    flex: 1,
+    backgroundColor: 'rgba(34, 34, 34, 0.8)',
+    borderRadius: 6,
+    padding: 8,
+    maxHeight: '100%',
+  },
+  logContent: {
+    flexGrow: 1,
+    justifyContent: 'flex-start',
   },
   logText: {
     color: colors.ivoryWhite, fontSize: 12, marginBottom: 2,
